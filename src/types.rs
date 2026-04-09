@@ -100,8 +100,16 @@ pub struct TranscriptSegment {
 pub struct Transcript {
     pub backend: String,
     pub model: String,
+    pub audio_duration_seconds: f32,
     pub notes: Vec<String>,
     pub segments: Vec<TranscriptSegment>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BenchmarkRun {
+    pub iteration: usize,
+    pub elapsed_seconds: f64,
+    pub realtime_factor: Option<f64>,
 }
 
 #[derive(Debug, Clone)]

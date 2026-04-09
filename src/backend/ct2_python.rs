@@ -27,14 +27,8 @@ impl Ct2PythonBackend {
             worker_script,
         }
     }
-}
 
-impl TranscriptionBackend for Ct2PythonBackend {
-    fn descriptor(&self) -> BackendDescriptor {
-        super::describe_backend(BackendKind::Ct2Python)
-    }
-
-    fn transcribe(&self, request: &TranscriptionRequest) -> Result<Transcript> {
+    pub fn build_worker_command(&self, request: &TranscriptionRequest) -> Command {
         let mut command = Command::new(&self.worker_launcher);
         command.args(&self.worker_launcher_args);
         command
@@ -47,6 +41,17 @@ impl TranscriptionBackend for Ct2PythonBackend {
             command.arg("--initial-prompt").arg(prompt);
         }
 
+        command
+    }
+}
+
+impl TranscriptionBackend for Ct2PythonBackend {
+    fn descriptor(&self) -> BackendDescriptor {
+        super::describe_backend(BackendKind::Ct2Python)
+    }
+
+    fn transcribe(&self, request: &TranscriptionRequest) -> Result<Transcript> {
+        let mut command = self.build_worker_command(request);
         let output = command.output().with_context(|| {
             format!(
                 "failed to run Python worker {}",

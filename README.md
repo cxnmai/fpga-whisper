@@ -39,6 +39,8 @@ That gives the project a clean path from:
 ```bash
 cargo run -- plan
 cargo run -- transcribe samples/demo.wav --backend ct2-python
+cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
+cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 cargo run -- tui
 ```
 
@@ -72,6 +74,51 @@ Current limitations:
 The Rust frontend uses `uv run` by default, so `cargo run -- transcribe ... --backend ct2-python` will execute against the `uv`-managed Python environment.
 The model is baked into the program, so there is no CLI model switch anymore.
 The language is baked in as English, so there is no CLI language switch anymore.
+
+## Benchmarking
+
+Use the built-in benchmark command to measure baseline transcription latency before you start moving stages onto the FPGA:
+
+```bash
+cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
+```
+
+This reports:
+
+- per-run wall-clock time
+- average/min/max transcription time
+- average real-time factor, computed as `elapsed_seconds / audio_duration_seconds`
+
+Keep this command stable and run it against the same sample set when the FPGA backend comes online.
+
+## System Profiling
+
+Use the profile command when you want host resource usage instead of just timing:
+
+```bash
+cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
+```
+
+This prints:
+
+- a summary table with elapsed time, real-time factor, average and peak CPU usage, and average and peak RAM usage
+- a per-sample table showing CPU and RAM usage across the full transcription run
+
+The CPU and RAM numbers are sampled from the backend process tree, which is the relevant baseline to compare against once the FPGA backend is implemented.
+
+## Criterion
+
+There is also a Criterion benchmark harness at:
+
+- `benches/transcriber_system_profile.rs`
+
+Run it with:
+
+```bash
+cargo bench --bench transcriber_system_profile
+```
+
+Criterion handles the timing loop, while the shared profiler collects CPU and RAM samples for the same transcription path.
 
 ## Next steps
 

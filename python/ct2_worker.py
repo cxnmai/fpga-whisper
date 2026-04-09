@@ -38,6 +38,7 @@ class TranscriptSegment:
 class TranscriptResponse:
     backend: str
     model: str
+    audio_duration_seconds: float
     notes: list[str]
     segments: list[TranscriptSegment]
 
@@ -69,6 +70,7 @@ def response_with_notes(model: str, *notes: str) -> TranscriptResponse:
     return TranscriptResponse(
         backend="ct2-python",
         model=model,
+        audio_duration_seconds=0.0,
         notes=list(notes),
         segments=[],
     )
@@ -186,6 +188,7 @@ def main() -> int:
             TranscriptResponse(
                 backend="ct2-python",
                 model=MODEL_REPO,
+                audio_duration_seconds=len(audio) / SAMPLE_RATE,
                 notes=notes,
                 segments=segments,
             ).to_json()

@@ -31,6 +31,7 @@ impl TranscriptionBackend for FpgaHybridBackend {
         Ok(Transcript {
             backend: "fpga-hybrid".to_owned(),
             model: MODEL_HF_REPO.to_owned(),
+            audio_duration_seconds: 0.0,
             notes: vec![
                 request.partition.summary().to_owned(),
                 format!("Planned FPGA stages: {fpga_stages}"),

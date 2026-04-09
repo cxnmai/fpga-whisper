@@ -1,7 +1,7 @@
-/target
-/.venv
-/artifacts
-/models
-/.uv-cache
-/python/__pycache__/
-*.pyc
+target/
+.venv/
+artifacts/
+models/
+.uv-cache/
+__pycache__/
+*.py[cod]
