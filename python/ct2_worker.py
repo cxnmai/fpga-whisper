@@ -24,6 +24,7 @@ CHUNK_SECONDS = 30
 CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_SECONDS
 MODEL_ALIAS = "distil-small.en"
 MODEL_REPO = "distil-whisper/distil-small.en"
+LANGUAGE_TOKEN = "<|en|>"
 
 
 @dataclass
@@ -47,7 +48,6 @@ class TranscriptResponse:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CTranslate2 Whisper worker.")
     parser.add_argument("--audio", type=Path, required=True)
-    parser.add_argument("--language")
     parser.add_argument("--initial-prompt")
     parser.add_argument(
         "--device",
@@ -72,14 +72,6 @@ def response_with_notes(model: str, *notes: str) -> TranscriptResponse:
         notes=list(notes),
         segments=[],
     )
-
-
-def format_language_token(language: str | None) -> str:
-    if not language:
-        return "<|en|>"
-    if language.startswith("<|") and language.endswith("|>"):
-        return language
-    return f"<|{language}|>"
 
 
 def main() -> int:
@@ -132,7 +124,7 @@ def main() -> int:
             return 0
 
         notes = [
-            "Direct CTranslate2 baseline with fixed 30 second chunking.",
+            "Direct CTranslate2 baseline with fixed 30 second chunking and baked-in English mode.",
             f"Model alias: {MODEL_ALIAS}",
             f"Model path: {model_path}",
             f"Device: {args.device}",
@@ -158,18 +150,10 @@ def main() -> int:
             ).input_features
             features_view = ctranslate2.StorageView.from_array(features)
 
-            language_token = format_language_token(args.language)
-            if args.language is None:
-                detected = model.detect_language(features_view)[0][0]
-                language_token = detected[0]
-                notes.append(
-                    f"Chunk {chunk_index}: detected language {detected[0]} with score {detected[1]:.4f}."
-                )
-
             prompt_tokens = processor.tokenizer.convert_tokens_to_ids(
                 [
                     "<|startoftranscript|>",
-                    language_token,
+                    LANGUAGE_TOKEN,
                     "<|transcribe|>",
                     "<|notimestamps|>",
                 ]

@@ -50,7 +50,7 @@ Set up the baseline Python environment with:
 
 ```bash
 uv lock
-uv run python/ct2_worker.py --audio samples/silence.wav --language en
+uv run python/ct2_worker.py --audio samples/silence.wav
 ```
 
 Optional environment variables:
@@ -71,6 +71,7 @@ Current limitations:
 
 The Rust frontend uses `uv run` by default, so `cargo run -- transcribe ... --backend ct2-python` will execute against the `uv`-managed Python environment.
 The model is baked into the program, so there is no CLI model switch anymore.
+The language is baked in as English, so there is no CLI language switch anymore.
 
 ## Next steps
 

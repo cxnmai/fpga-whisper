@@ -29,7 +29,6 @@ impl AppConfig {
             audio_path: PathBuf::from("samples/demo.wav"),
             backend: self.default_backend,
             partition: self.default_partition,
-            language: Some("en".to_owned()),
             initial_prompt: None,
         }
     }

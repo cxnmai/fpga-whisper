@@ -29,8 +29,6 @@ enum Commands {
         #[arg(long, value_enum, default_value_t = PartitionPreset::Hybrid)]
         partition: PartitionPreset,
         #[arg(long)]
-        language: Option<String>,
-        #[arg(long)]
         initial_prompt: Option<String>,
     },
     Tui,
@@ -52,14 +50,12 @@ pub fn run() -> Result<()> {
             audio,
             backend,
             partition,
-            language,
             initial_prompt,
         } => {
             let request = TranscriptionRequest {
                 audio_path: audio,
                 backend,
                 partition,
-                language,
                 initial_prompt,
             };
 

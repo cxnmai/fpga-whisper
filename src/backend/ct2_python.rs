@@ -43,10 +43,6 @@ impl TranscriptionBackend for Ct2PythonBackend {
             .arg("--audio")
             .arg(&request.audio_path);
 
-        if let Some(language) = &request.language {
-            command.arg("--language").arg(language);
-        }
-
         if let Some(prompt) = &request.initial_prompt {
             command.arg("--initial-prompt").arg(prompt);
         }

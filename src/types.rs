@@ -86,7 +86,6 @@ pub struct TranscriptionRequest {
     pub audio_path: PathBuf,
     pub backend: BackendKind,
     pub partition: PartitionPreset,
-    pub language: Option<String>,
     pub initial_prompt: Option<String>,
 }
 
