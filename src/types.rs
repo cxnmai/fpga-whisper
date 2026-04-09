@@ -10,6 +10,7 @@ pub const MODEL_CT2_ALIAS: &str = "distil-small.en";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 pub enum BackendKind {
     Ct2Python,
+    FpgaSim,
     FpgaHybrid,
 }
 
@@ -17,6 +18,7 @@ impl BackendKind {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::Ct2Python => "ct2-python",
+            Self::FpgaSim => "fpga-sim",
             Self::FpgaHybrid => "fpga-hybrid",
         }
     }

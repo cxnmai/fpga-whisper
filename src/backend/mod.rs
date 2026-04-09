@@ -1,5 +1,6 @@
 mod ct2_python;
 mod fpga_hybrid;
+mod fpga_sim;
 
 use anyhow::Result;
 
@@ -11,6 +12,7 @@ use crate::types::{
 
 pub use ct2_python::Ct2PythonBackend;
 pub use fpga_hybrid::FpgaHybridBackend;
+pub use fpga_sim::FpgaSimBackend;
 
 pub trait TranscriptionBackend {
     fn descriptor(&self) -> BackendDescriptor;
@@ -23,6 +25,10 @@ pub fn build_backend(kind: BackendKind, config: &AppConfig) -> Box<dyn Transcrip
             config.worker_launcher.clone(),
             config.worker_launcher_args.clone(),
             config.worker_script.clone(),
+        )),
+        BackendKind::FpgaSim => Box::new(FpgaSimBackend::new(
+            config.project_root.clone(),
+            config.fpga_sim_io_dir.clone(),
         )),
         BackendKind::FpgaHybrid => Box::new(FpgaHybridBackend::new()),
     }
@@ -43,6 +49,19 @@ pub fn describe_backend(kind: BackendKind) -> BackendDescriptor {
                 PipelineStage::PostProcess,
             ],
             fpga_stages: vec![],
+        },
+        BackendKind::FpgaSim => BackendDescriptor {
+            id: BackendKind::FpgaSim,
+            summary: "Host-side integration path for simulated RTL via file-based vector exchange.",
+            partition: PartitionPreset::Frontend,
+            host_stages: vec![
+                PipelineStage::AudioDecode,
+                PipelineStage::Encoder,
+                PipelineStage::DecoderMath,
+                PipelineStage::DecodePolicy,
+                PipelineStage::PostProcess,
+            ],
+            fpga_stages: vec![PipelineStage::FeatureExtraction],
         },
         BackendKind::FpgaHybrid => BackendDescriptor {
             id: BackendKind::FpgaHybrid,

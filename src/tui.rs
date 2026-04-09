@@ -59,6 +59,7 @@ fn tui_loop(
             frame.render_widget(header, chunks[0]);
 
             let ct2 = describe_backend(BackendKind::Ct2Python);
+            let fpga_sim = describe_backend(BackendKind::FpgaSim);
             let fpga = describe_backend(BackendKind::FpgaHybrid);
             let body = Paragraph::new(Text::from(vec![
                 Line::from(format!("Baked-in model: {MODEL_HF_REPO}")),
@@ -71,6 +72,11 @@ fn tui_loop(
                 Line::from(""),
                 Line::from("Backends"),
                 Line::from(format!("- {}: {}", ct2.id.display_name(), ct2.summary)),
+                Line::from(format!(
+                    "- {}: {}",
+                    fpga_sim.id.display_name(),
+                    fpga_sim.summary
+                )),
                 Line::from(format!("- {}: {}", fpga.id.display_name(), fpga.summary)),
                 Line::from(""),
                 Line::from("Target FPGA ownership"),
@@ -80,7 +86,7 @@ fn tui_loop(
                 Line::from(""),
                 Line::from("Next milestone"),
                 Line::from("- add context carry-over and timestamps to the CTranslate2 baseline"),
-                Line::from("- add an FPGA transport crate and chunk executor"),
+                Line::from("- replace the simulator bridge with iverilog/vvp execution"),
             ]))
             .block(Block::default().title("Project Map").borders(Borders::ALL));
             frame.render_widget(body, chunks[1]);

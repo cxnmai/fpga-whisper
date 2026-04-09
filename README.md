@@ -39,6 +39,7 @@ That gives the project a clean path from:
 ```bash
 cargo run -- plan
 cargo run -- transcribe samples/demo.wav --backend ct2-python
+cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
 cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 cargo run -- tui
@@ -74,6 +75,23 @@ Current limitations:
 The Rust frontend uses `uv run` by default, so `cargo run -- transcribe ... --backend ct2-python` will execute against the `uv`-managed Python environment.
 The model is baked into the program, so there is no CLI model switch anymore.
 The language is baked in as English, so there is no CLI language switch anymore.
+
+## FPGA Simulation Path
+
+The first hardware-facing scaffold keeps Python out of the RTL boundary:
+
+- Rust host orchestrates the pipeline
+- `fpga-sim` writes a request JSON into `fpga/tmp/`
+- a simulator bridge script reads it and writes a response JSON back
+- Rust parses the response and continues the flow
+
+This keeps the eventual real-FPGA interface aligned with the simulator interface.
+
+Try it with:
+
+```bash
+cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
+```
 
 ## Benchmarking
 

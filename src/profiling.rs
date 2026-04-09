@@ -52,6 +52,9 @@ pub fn profile_request(
         crate::types::BackendKind::Ct2Python => {
             profile_ct2_request(config, request, sample_interval)
         }
+        crate::types::BackendKind::FpgaSim => {
+            bail!("system profiling is not implemented for the fpga-sim backend yet")
+        }
         crate::types::BackendKind::FpgaHybrid => {
             bail!("system profiling is not implemented for the fpga-hybrid backend yet")
         }
