@@ -65,6 +65,10 @@ fn tui_loop(
                     "Default model: {}",
                     config.default_model.as_hf_repo()
                 )),
+                Line::from(format!(
+                    "Python executable: {}",
+                    config.python_executable.display()
+                )),
                 Line::from(format!("Worker script: {}", config.worker_script.display())),
                 Line::from(""),
                 Line::from("Backends"),
@@ -77,7 +81,7 @@ fn tui_loop(
                 Line::from("- decoder math"),
                 Line::from(""),
                 Line::from("Next milestone"),
-                Line::from("- replace the Python worker stub with a CTranslate2 JSON worker"),
+                Line::from("- add context carry-over and timestamps to the CTranslate2 baseline"),
                 Line::from("- add an FPGA transport crate and chunk executor"),
             ]))
             .block(Block::default().title("Project Map").borders(Borders::ALL));

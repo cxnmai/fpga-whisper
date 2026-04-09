@@ -30,6 +30,12 @@ impl ModelId {
             Self::DistilWhisperSmallEn => "distil-whisper/distil-small.en",
         }
     }
+
+    pub fn as_ct2_model_id(self) -> &'static str {
+        match self {
+            Self::DistilWhisperSmallEn => "distil-small.en",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,0 +1,3 @@
+ctranslate2
+faster-whisper
+transformers

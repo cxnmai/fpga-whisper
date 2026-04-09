@@ -1,19 +1,22 @@
 use std::path::PathBuf;
+use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 
 use crate::backend::TranscriptionBackend;
-use crate::types::{
-    BackendDescriptor, BackendKind, Transcript, TranscriptSegment, TranscriptionRequest,
-};
+use crate::types::{BackendDescriptor, BackendKind, Transcript, TranscriptionRequest};
 
 pub struct Ct2PythonBackend {
+    python_executable: PathBuf,
     worker_script: PathBuf,
 }
 
 impl Ct2PythonBackend {
-    pub fn new(worker_script: PathBuf) -> Self {
-        Self { worker_script }
+    pub fn new(python_executable: PathBuf, worker_script: PathBuf) -> Self {
+        Self {
+            python_executable,
+            worker_script,
+        }
     }
 }
 
@@ -23,28 +26,46 @@ impl TranscriptionBackend for Ct2PythonBackend {
     }
 
     fn transcribe(&self, request: &TranscriptionRequest) -> Result<Transcript> {
-        let command = format!(
-            "python3 {} --audio {} --model {}",
-            self.worker_script.display(),
-            request.audio_path.display(),
-            request.model.as_hf_repo()
-        );
+        let mut command = Command::new(&self.python_executable);
+        command
+            .arg(&self.worker_script)
+            .arg("--audio")
+            .arg(&request.audio_path)
+            .arg("--model")
+            .arg(request.model.as_ct2_model_id())
+            .arg("--model-repo")
+            .arg(request.model.as_hf_repo());
 
-        Ok(Transcript {
-            backend: "ct2-python".to_owned(),
-            model: request.model.as_hf_repo().to_owned(),
-            notes: vec![
-                "Skeleton mode only. The Rust app is ready to hand work to a Python worker."
-                    .to_owned(),
-                format!("Planned command: {command}"),
-                "Replace this stub with JSON IPC once the worker is wired to CTranslate2."
-                    .to_owned(),
-            ],
-            segments: vec![TranscriptSegment {
-                start_seconds: 0.0,
-                end_seconds: 0.0,
-                text: "[skeleton] CTranslate2 baseline is not wired yet.".to_owned(),
-            }],
+        if let Some(language) = &request.language {
+            command.arg("--language").arg(language);
+        }
+
+        if let Some(prompt) = &request.initial_prompt {
+            command.arg("--initial-prompt").arg(prompt);
+        }
+
+        let output = command.output().with_context(|| {
+            format!(
+                "failed to run Python worker {}",
+                self.worker_script.display()
+            )
+        })?;
+
+        if !output.status.success() {
+            bail!(
+                "Python worker exited with status {}.\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        serde_json::from_slice(&output.stdout).with_context(|| {
+            format!(
+                "failed to parse worker JSON output.\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
         })
     }
 }
