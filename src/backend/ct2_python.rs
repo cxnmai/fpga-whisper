@@ -4,7 +4,10 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 
 use crate::backend::TranscriptionBackend;
-use crate::types::{BackendDescriptor, BackendKind, Transcript, TranscriptionRequest};
+use crate::types::{
+    BackendDescriptor, BackendKind, MODEL_CT2_ALIAS, MODEL_HF_REPO, Transcript,
+    TranscriptionRequest,
+};
 
 pub struct Ct2PythonBackend {
     worker_launcher: PathBuf,
@@ -38,11 +41,7 @@ impl TranscriptionBackend for Ct2PythonBackend {
             .env("UV_CACHE_DIR", ".uv-cache")
             .arg(&self.worker_script)
             .arg("--audio")
-            .arg(&request.audio_path)
-            .arg("--model")
-            .arg(request.model.as_ct2_model_id())
-            .arg("--model-repo")
-            .arg(request.model.as_hf_repo());
+            .arg(&request.audio_path);
 
         if let Some(language) = &request.language {
             command.arg("--language").arg(language);
@@ -68,12 +67,26 @@ impl TranscriptionBackend for Ct2PythonBackend {
             );
         }
 
-        serde_json::from_slice(&output.stdout).with_context(|| {
-            format!(
-                "failed to parse worker JSON output.\nstdout:\n{}\nstderr:\n{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            )
-        })
+        serde_json::from_slice(&output.stdout)
+            .with_context(|| {
+                format!(
+                    "failed to parse worker JSON output.\nstdout:\n{}\nstderr:\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                )
+            })
+            .map(|mut transcript: Transcript| {
+                transcript.model = MODEL_HF_REPO.to_owned();
+                if transcript
+                    .notes
+                    .iter()
+                    .all(|note| !note.contains("Model alias:"))
+                {
+                    transcript
+                        .notes
+                        .insert(1, format!("Model alias: {MODEL_CT2_ALIAS}"));
+                }
+                transcript
+            })
     }
 }

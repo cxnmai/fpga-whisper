@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use crate::backend::{build_backend, describe_backend};
 use crate::config::AppConfig;
 use crate::tui::run_tui;
-use crate::types::{BackendKind, ModelId, PartitionPreset, TranscriptionRequest};
+use crate::types::{BackendKind, PartitionPreset, TranscriptionRequest};
 
 #[derive(Debug, Parser)]
 #[command(name = "fpga-whisper")]
@@ -26,8 +26,6 @@ enum Commands {
         audio: std::path::PathBuf,
         #[arg(long, value_enum, default_value_t = BackendKind::Ct2Python)]
         backend: BackendKind,
-        #[arg(long, value_enum, default_value_t = ModelId::DistilWhisperSmallEn)]
-        model: ModelId,
         #[arg(long, value_enum, default_value_t = PartitionPreset::Hybrid)]
         partition: PartitionPreset,
         #[arg(long)]
@@ -53,14 +51,12 @@ pub fn run() -> Result<()> {
         Commands::Transcribe {
             audio,
             backend,
-            model,
             partition,
             language,
             initial_prompt,
         } => {
             let request = TranscriptionRequest {
                 audio_path: audio,
-                model,
                 backend,
                 partition,
                 language,

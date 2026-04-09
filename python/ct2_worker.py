@@ -22,6 +22,8 @@ from pathlib import Path
 SAMPLE_RATE = 16_000
 CHUNK_SECONDS = 30
 CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_SECONDS
+MODEL_ALIAS = "distil-small.en"
+MODEL_REPO = "distil-whisper/distil-small.en"
 
 
 @dataclass
@@ -45,8 +47,6 @@ class TranscriptResponse:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CTranslate2 Whisper worker.")
     parser.add_argument("--audio", type=Path, required=True)
-    parser.add_argument("--model", required=True)
-    parser.add_argument("--model-repo", required=True)
     parser.add_argument("--language")
     parser.add_argument("--initial-prompt")
     parser.add_argument(
@@ -88,7 +88,7 @@ def main() -> int:
     if not args.audio.exists():
         print(
             response_with_notes(
-                args.model_repo,
+                MODEL_REPO,
                 f"Audio file does not exist: {args.audio}",
                 "No transcription was attempted.",
             ).to_json()
@@ -103,16 +103,16 @@ def main() -> int:
     except ImportError as exc:
         print(
             response_with_notes(
-                args.model_repo,
+                MODEL_REPO,
                 "Python dependencies are incomplete for the CTranslate2 baseline.",
-                "Install the packages listed in python/requirements-ct2.txt.",
+                "Run the worker through `uv run` from the repo root so uv provides the dependencies.",
                 f"Import failure: {exc}",
             ).to_json()
         )
         return 0
 
     try:
-        model_path = download_model(args.model, cache_dir="models")
+        model_path = download_model(MODEL_ALIAS, cache_dir="models")
         processor = WhisperProcessor.from_pretrained(model_path)
         model = ctranslate2.models.Whisper(
             model_path,
@@ -124,7 +124,7 @@ def main() -> int:
         if len(audio) == 0:
             print(
                 response_with_notes(
-                    args.model_repo,
+                    MODEL_REPO,
                     f"Decoded zero samples from {args.audio}.",
                     "No transcription was attempted.",
                 ).to_json()
@@ -133,7 +133,7 @@ def main() -> int:
 
         notes = [
             "Direct CTranslate2 baseline with fixed 30 second chunking.",
-            f"Model alias: {args.model}",
+            f"Model alias: {MODEL_ALIAS}",
             f"Model path: {model_path}",
             f"Device: {args.device}",
             f"Compute type: {args.compute_type}",
@@ -201,7 +201,7 @@ def main() -> int:
         print(
             TranscriptResponse(
                 backend="ct2-python",
-                model=args.model_repo,
+                model=MODEL_REPO,
                 notes=notes,
                 segments=segments,
             ).to_json()
@@ -210,7 +210,7 @@ def main() -> int:
     except Exception as exc:  # pragma: no cover - defensive path for early bring-up
         print(
             response_with_notes(
-                args.model_repo,
+                MODEL_REPO,
                 "CTranslate2 worker failed before transcription completed.",
                 f"Exception: {exc}",
             ).to_json()

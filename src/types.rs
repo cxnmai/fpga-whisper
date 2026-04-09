@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
+pub const MODEL_HF_REPO: &str = "distil-whisper/distil-small.en";
+pub const MODEL_CT2_ALIAS: &str = "distil-small.en";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 pub enum BackendKind {
     Ct2Python,
@@ -15,25 +18,6 @@ impl BackendKind {
         match self {
             Self::Ct2Python => "ct2-python",
             Self::FpgaHybrid => "fpga-hybrid",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
-pub enum ModelId {
-    DistilWhisperSmallEn,
-}
-
-impl ModelId {
-    pub fn as_hf_repo(self) -> &'static str {
-        match self {
-            Self::DistilWhisperSmallEn => "distil-whisper/distil-small.en",
-        }
-    }
-
-    pub fn as_ct2_model_id(self) -> &'static str {
-        match self {
-            Self::DistilWhisperSmallEn => "distil-small.en",
         }
     }
 }
@@ -100,7 +84,6 @@ impl PartitionPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionRequest {
     pub audio_path: PathBuf,
-    pub model: ModelId,
     pub backend: BackendKind,
     pub partition: PartitionPreset,
     pub language: Option<String>,

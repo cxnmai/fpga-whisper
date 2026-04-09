@@ -2,7 +2,7 @@
 
 Hybrid Whisper project skeleton for:
 
-- `distil-whisper/distil-small.en`
+- a baked-in `distil-whisper/distil-small.en` model target
 - a Rust CLI/TUI frontend
 - a host runtime that can start from CTranslate2 and progressively hand stages to an FPGA
 
@@ -50,7 +50,7 @@ Set up the baseline Python environment with:
 
 ```bash
 uv lock
-uv run python/ct2_worker.py --audio samples/silence.wav --model distil-small.en --model-repo distil-whisper/distil-small.en --language en
+uv run python/ct2_worker.py --audio samples/silence.wav --language en
 ```
 
 Optional environment variables:
@@ -70,6 +70,7 @@ Current limitations:
 - `initial_prompt` is parsed but not used yet
 
 The Rust frontend uses `uv run` by default, so `cargo run -- transcribe ... --backend ct2-python` will execute against the `uv`-managed Python environment.
+The model is baked into the program, so there is no CLI model switch anymore.
 
 ## Next steps
 

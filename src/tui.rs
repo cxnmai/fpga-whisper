@@ -16,7 +16,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::backend::describe_backend;
 use crate::config::AppConfig;
-use crate::types::BackendKind;
+use crate::types::{BackendKind, MODEL_HF_REPO};
 
 pub fn run_tui(config: AppConfig) -> Result<()> {
     enable_raw_mode()?;
@@ -61,10 +61,7 @@ fn tui_loop(
             let ct2 = describe_backend(BackendKind::Ct2Python);
             let fpga = describe_backend(BackendKind::FpgaHybrid);
             let body = Paragraph::new(Text::from(vec![
-                Line::from(format!(
-                    "Default model: {}",
-                    config.default_model.as_hf_repo()
-                )),
+                Line::from(format!("Baked-in model: {MODEL_HF_REPO}")),
                 Line::from(format!(
                     "Worker launcher: {} {}",
                     config.worker_launcher.display(),

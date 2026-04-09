@@ -2,7 +2,8 @@ use anyhow::Result;
 
 use crate::backend::TranscriptionBackend;
 use crate::types::{
-    BackendDescriptor, BackendKind, Transcript, TranscriptSegment, TranscriptionRequest,
+    BackendDescriptor, BackendKind, MODEL_HF_REPO, Transcript, TranscriptSegment,
+    TranscriptionRequest,
 };
 
 pub struct FpgaHybridBackend;
@@ -29,7 +30,7 @@ impl TranscriptionBackend for FpgaHybridBackend {
 
         Ok(Transcript {
             backend: "fpga-hybrid".to_owned(),
-            model: request.model.as_hf_repo().to_owned(),
+            model: MODEL_HF_REPO.to_owned(),
             notes: vec![
                 request.partition.summary().to_owned(),
                 format!("Planned FPGA stages: {fpga_stages}"),
