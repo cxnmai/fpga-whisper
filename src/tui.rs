@@ -66,8 +66,9 @@ fn tui_loop(
                     config.default_model.as_hf_repo()
                 )),
                 Line::from(format!(
-                    "Python executable: {}",
-                    config.python_executable.display()
+                    "Worker launcher: {} {}",
+                    config.worker_launcher.display(),
+                    config.worker_launcher_args.join(" ")
                 )),
                 Line::from(format!("Worker script: {}", config.worker_script.display())),
                 Line::from(""),

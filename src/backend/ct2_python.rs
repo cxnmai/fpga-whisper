@@ -7,14 +7,20 @@ use crate::backend::TranscriptionBackend;
 use crate::types::{BackendDescriptor, BackendKind, Transcript, TranscriptionRequest};
 
 pub struct Ct2PythonBackend {
-    python_executable: PathBuf,
+    worker_launcher: PathBuf,
+    worker_launcher_args: Vec<String>,
     worker_script: PathBuf,
 }
 
 impl Ct2PythonBackend {
-    pub fn new(python_executable: PathBuf, worker_script: PathBuf) -> Self {
+    pub fn new(
+        worker_launcher: PathBuf,
+        worker_launcher_args: Vec<String>,
+        worker_script: PathBuf,
+    ) -> Self {
         Self {
-            python_executable,
+            worker_launcher,
+            worker_launcher_args,
             worker_script,
         }
     }
@@ -26,8 +32,10 @@ impl TranscriptionBackend for Ct2PythonBackend {
     }
 
     fn transcribe(&self, request: &TranscriptionRequest) -> Result<Transcript> {
-        let mut command = Command::new(&self.python_executable);
+        let mut command = Command::new(&self.worker_launcher);
+        command.args(&self.worker_launcher_args);
         command
+            .env("UV_CACHE_DIR", ".uv-cache")
             .arg(&self.worker_script)
             .arg("--audio")
             .arg(&request.audio_path)

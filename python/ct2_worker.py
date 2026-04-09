@@ -156,10 +156,11 @@ def main() -> int:
                 sampling_rate=SAMPLE_RATE,
                 return_tensors="np",
             ).input_features
+            features_view = ctranslate2.StorageView.from_array(features)
 
             language_token = format_language_token(args.language)
             if args.language is None:
-                detected = model.detect_language(features)[0][0]
+                detected = model.detect_language(features_view)[0][0]
                 language_token = detected[0]
                 notes.append(
                     f"Chunk {chunk_index}: detected language {detected[0]} with score {detected[1]:.4f}."
@@ -175,7 +176,7 @@ def main() -> int:
             )
 
             results = model.generate(
-                features,
+                features_view,
                 [prompt_tokens],
                 beam_size=args.beam_size,
             )

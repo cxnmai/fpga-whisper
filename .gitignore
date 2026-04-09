@@ -2,5 +2,6 @@
 /.venv
 /artifacts
 /models
+/.uv-cache
 /python/__pycache__/
 *.pyc

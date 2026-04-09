@@ -4,7 +4,8 @@ use crate::types::{BackendKind, ModelId, PartitionPreset, TranscriptionRequest};
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    pub python_executable: PathBuf,
+    pub worker_launcher: PathBuf,
+    pub worker_launcher_args: Vec<String>,
     pub worker_script: PathBuf,
     pub default_model: ModelId,
     pub default_backend: BackendKind,
@@ -14,7 +15,8 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            python_executable: PathBuf::from("python3"),
+            worker_launcher: PathBuf::from("uv"),
+            worker_launcher_args: vec!["run".to_owned()],
             worker_script: PathBuf::from("python/ct2_worker.py"),
             default_model: ModelId::DistilWhisperSmallEn,
             default_backend: BackendKind::Ct2Python,

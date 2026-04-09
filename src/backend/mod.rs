@@ -20,7 +20,8 @@ pub trait TranscriptionBackend {
 pub fn build_backend(kind: BackendKind, config: &AppConfig) -> Box<dyn TranscriptionBackend> {
     match kind {
         BackendKind::Ct2Python => Box::new(Ct2PythonBackend::new(
-            config.python_executable.clone(),
+            config.worker_launcher.clone(),
+            config.worker_launcher_args.clone(),
             config.worker_script.clone(),
         )),
         BackendKind::FpgaHybrid => Box::new(FpgaHybridBackend::new()),

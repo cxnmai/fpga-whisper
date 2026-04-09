@@ -29,7 +29,8 @@ That gives the project a clean path from:
 - `src/backend/ct2_python.rs`: host-side baseline backend
 - `src/backend/fpga_hybrid.rs`: future FPGA handoff backend
 - `python/ct2_worker.py`: direct CTranslate2 worker with graceful dependency fallback
-- `python/requirements-ct2.txt`: Python packages for the host baseline
+- `pyproject.toml`: `uv`-managed Python dependencies for the host baseline
+- `uv.lock`: locked Python dependency graph for reproducible runs
 - `docs/architecture.md`: stage split and milestones
 - `fpga/README.md`: hardware-side ownership and folder intent
 
@@ -43,12 +44,13 @@ cargo run -- tui
 
 ## Python baseline
 
-The `ct2-python` backend now invokes `python/ct2_worker.py` and expects JSON back.
+The `ct2-python` backend now invokes `uv run python/ct2_worker.py` and expects JSON back.
 
-Install the baseline Python dependencies with:
+Set up the baseline Python environment with:
 
 ```bash
-python3 -m pip install -r python/requirements-ct2.txt
+uv lock
+uv run python/ct2_worker.py --audio samples/silence.wav --model distil-small.en --model-repo distil-whisper/distil-small.en --language en
 ```
 
 Optional environment variables:
@@ -66,6 +68,8 @@ Current limitations:
 - no VAD
 - no prompt carry-over between chunks
 - `initial_prompt` is parsed but not used yet
+
+The Rust frontend uses `uv run` by default, so `cargo run -- transcribe ... --backend ct2-python` will execute against the `uv`-managed Python environment.
 
 ## Next steps
 

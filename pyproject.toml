@@ -1,0 +1,13 @@
+[project]
+name = "fpga-whisper-python"
+version = "0.1.0"
+description = "Python baseline worker for fpga-whisper"
+requires-python = ">=3.12"
+dependencies = [
+    "ctranslate2",
+    "faster-whisper",
+    "transformers",
+]
+
+[tool.uv]
+package = false
