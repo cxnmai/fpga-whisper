@@ -14,6 +14,7 @@ pub struct AppConfig {
     pub reference_python: PathBuf,
     pub reference_exporter_script: PathBuf,
     pub reference_cache_dir: PathBuf,
+    pub reference_export_positions: usize,
     pub fpga_sim_io_dir: PathBuf,
     pub default_backend: BackendKind,
     pub default_partition: PartitionPreset,
@@ -29,6 +30,7 @@ impl Default for AppConfig {
             reference_python: PathBuf::from("python3"),
             reference_exporter_script: PathBuf::from("python/export_reference_activation.py"),
             reference_cache_dir: PathBuf::from("artifacts/reference"),
+            reference_export_positions: 4,
             fpga_sim_io_dir: PathBuf::from("fpga/tmp"),
             default_backend: BackendKind::Ct2Python,
             default_partition: PartitionPreset::Hybrid,
@@ -67,6 +69,9 @@ impl AppConfig {
             .unwrap_or("sample");
         self.project_root
             .join(&self.reference_cache_dir)
-            .join(format!("encoder_layer0_ffn_input_{stem}.json"))
+            .join(format!(
+                "encoder_layer0_ffn_inputs_{stem}_p{}.json",
+                self.reference_export_positions
+            ))
     }
 }

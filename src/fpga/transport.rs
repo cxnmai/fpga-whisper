@@ -27,6 +27,7 @@ pub struct GemmTileI16Request {
     pub shape: GemmTileShape,
     pub lhs_tile: Vec<i16>,
     pub rhs_tile: Vec<i16>,
+    pub accumulator_input: Vec<i64>,
     pub expected_output: Vec<i64>,
 }
 

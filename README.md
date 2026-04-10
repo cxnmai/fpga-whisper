@@ -43,6 +43,8 @@ cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 cargo run -- gemm-check
 cargo run -- linear-check
 cargo run -- projection-tile-check
+cargo run -- projection-sweep-check
+cargo run -- projection-full-check
 cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
 cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 cargo run -- tui
@@ -84,7 +86,7 @@ The language is baked in as English, so there is no CLI language switch anymore.
 The first hardware-facing scaffold keeps Python out of the RTL boundary:
 
 - Rust host orchestrates the pipeline
-- `fpga-sim` writes a request JSON into `fpga/tmp/`
+- `fpga-sim` writes each request into its own scratch directory under `fpga/tmp/`
 - Rust generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
 - Rust parses the response and continues the flow
 
@@ -114,6 +116,8 @@ cargo run -- linear-check
 The GEMM path now runs through a real RTL tile module in `fpga/rtl/gemm_tile_i16x8.v`, not a host-side loop of scalar simulator calls.
 `projection-tile-check` validates one real tile cut from `encoder/layer_0/ffn/linear_0` in the baked CTranslate2 `model.bin`, quantizes it to the current `Q8.8` harness, and compares the RTL result to both the quantized software path and the original float reference.
 If the reference activation cache is missing, Rust invokes `python/export_reference_activation.py` once with the system `python3` interpreter to export `model.encoder.layers.0.fc1` input activations from `samples/jfk.flac` into `artifacts/reference/`. After that, Rust owns the cache loading, quantization, and simulator comparison path.
+`projection-sweep-check` runs the same real projection path across multiple cached sequence positions, multiple input-channel windows, and multiple output-column windows, then prints a summary table of max absolute error per case.
+`projection-full-check` accumulates 96 adjacent `inner=8` RTL GEMM tiles to cover a real full-width `1x768 -> 1x3` projection slice with bias already seeded into the FPGA-side accumulator path.
 
 That is the right next layer before trying to wire actual Whisper projections onto the FPGA path.
 
@@ -165,5 +169,5 @@ Criterion handles the timing loop, while the shared profiler collects CPU and RA
 ## Next steps
 
 1. Add context carry-over and timestamps to the Python baseline so it more closely matches `faster-whisper`.
-2. Replace the deterministic input vector in `projection-tile-check` with a real intermediate activation slice from the host baseline.
+2. Expand the accumulator-backed projection path from one `1x768 -> 1x3` slice into wider output tiles so more of a real Whisper layer sits on the FPGA boundary at once.
 3. Generalize the current `i16 x i16, inner=8` simulator tile into the quantized matrix engine you want to carry onto hardware.

@@ -12,9 +12,10 @@ pub struct ReferenceActivationExport {
     pub model_repo: String,
     pub audio_path: String,
     pub layer_name: String,
-    pub sequence_index: usize,
+    pub sequence_length: usize,
+    pub exported_positions: usize,
     pub hidden_size: usize,
-    pub activation: Vec<f32>,
+    pub activations: Vec<Vec<f32>>,
 }
 
 pub fn ensure_reference_activation_export(
@@ -35,6 +36,8 @@ pub fn ensure_reference_activation_export(
         .arg(&config.reference_exporter_script)
         .arg("--audio")
         .arg(audio_path)
+        .arg("--positions")
+        .arg(config.reference_export_positions.to_string())
         .arg("--output")
         .arg(&output_path)
         .current_dir(&config.project_root)

@@ -1,17 +1,18 @@
 `timescale 1ns/1ps
-`include "fpga/tmp/gemm_tile_vectors.vh"
+`include "gemm_tile_vectors.vh"
 
 module gemm_tile_i16x8_tb;
     wire signed [TILE_ROWS * TILE_COLS * 64 - 1:0] result_tile;
     integer result_file;
     integer idx;
 
-    gemm_tile_i16x8 #(
+    gemm_tile_accum_i16x8 #(
         .ROWS(TILE_ROWS),
         .COLS(TILE_COLS)
     ) dut (
         .lhs_tile(LHS_TILE),
         .rhs_tile(RHS_TILE),
+        .accum_tile(ACCUM_TILE),
         .result_tile(result_tile)
     );
 
@@ -23,9 +24,9 @@ module gemm_tile_i16x8_tb;
     endfunction
 
     initial begin
-        result_file = $fopen("fpga/tmp/gemm_tile_result.txt", "w");
+        result_file = $fopen("gemm_tile_result.txt", "w");
         if (result_file == 0) begin
-            $display("failed to open fpga/tmp/gemm_tile_result.txt");
+            $display("failed to open gemm_tile_result.txt");
             $finish;
         end
 
@@ -34,7 +35,7 @@ module gemm_tile_i16x8_tb;
             $fdisplay(result_file, "%0d", result_at(idx));
         end
         $fclose(result_file);
-        $dumpfile("fpga/tmp/gemm_tile_i16x8_tb.vcd");
+        $dumpfile("gemm_tile_i16x8_tb.vcd");
         $dumpvars(0, gemm_tile_i16x8_tb);
         #1;
         $finish;

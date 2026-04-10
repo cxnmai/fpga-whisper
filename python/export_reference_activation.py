@@ -16,12 +16,12 @@ from transformers.utils import logging as hf_logging
 SAMPLE_RATE = 16_000
 MODEL_REPO = "distil-whisper/distil-small.en"
 TARGET_LAYER = "model.encoder.layers.0.fc1"
-SEQUENCE_INDEX = 0
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Export one Whisper activation slice.")
     parser.add_argument("--audio", type=Path, required=True)
+    parser.add_argument("--positions", type=int, default=4)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -83,13 +83,15 @@ def main() -> int:
     hook.remove()
 
     activation = activation_holder["value"].squeeze(0)
+    exported_positions = min(args.positions, int(activation.shape[0]))
     export = {
         "model_repo": MODEL_REPO,
         "audio_path": str(args.audio),
         "layer_name": TARGET_LAYER,
-        "sequence_index": SEQUENCE_INDEX,
+        "sequence_length": int(activation.shape[0]),
+        "exported_positions": exported_positions,
         "hidden_size": int(activation.shape[-1]),
-        "activation": activation[SEQUENCE_INDEX].tolist(),
+        "activations": activation[:exported_positions].tolist(),
     }
 
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -47,6 +47,14 @@ pub struct GemmComparison {
 }
 
 pub fn software_gemm(lhs: &MatrixI16, rhs: &MatrixI16) -> Result<MatrixI64> {
+    software_gemm_with_accumulator(lhs, rhs, None)
+}
+
+pub fn software_gemm_with_accumulator(
+    lhs: &MatrixI16,
+    rhs: &MatrixI16,
+    accumulator: Option<&MatrixI64>,
+) -> Result<MatrixI64> {
     if lhs.cols != rhs.rows {
         bail!(
             "incompatible GEMM dimensions: lhs {}x{}, rhs {}x{}",
@@ -56,11 +64,22 @@ pub fn software_gemm(lhs: &MatrixI16, rhs: &MatrixI16) -> Result<MatrixI64> {
             rhs.cols
         );
     }
+    if let Some(accumulator) = accumulator {
+        if accumulator.rows != lhs.rows || accumulator.cols != rhs.cols {
+            bail!(
+                "accumulator shape mismatch: expected {}x{}, got {}x{}",
+                lhs.rows,
+                rhs.cols,
+                accumulator.rows,
+                accumulator.cols
+            );
+        }
+    }
 
     let mut values = Vec::with_capacity(lhs.rows * rhs.cols);
     for row in 0..lhs.rows {
         for col in 0..rhs.cols {
-            let mut sum = 0_i64;
+            let mut sum = accumulator.map_or(0_i64, |acc| acc.get(row, col));
             for inner in 0..lhs.cols {
                 let lhs_value = i64::from(lhs.values[row * lhs.cols + inner]);
                 let rhs_value = i64::from(rhs.values[inner * rhs.cols + col]);
@@ -80,6 +99,17 @@ pub fn simulate_gemm_tile(
     lhs: &MatrixI16,
     rhs: &MatrixI16,
 ) -> Result<GemmComparison> {
+    simulate_gemm_tile_with_accumulator(executor, output_dir, audio_path, lhs, rhs, None)
+}
+
+pub fn simulate_gemm_tile_with_accumulator(
+    executor: &dyn FpgaExecutor,
+    output_dir: &std::path::Path,
+    audio_path: &str,
+    lhs: &MatrixI16,
+    rhs: &MatrixI16,
+    accumulator: Option<&MatrixI64>,
+) -> Result<GemmComparison> {
     if lhs.cols != rhs.rows {
         bail!(
             "incompatible GEMM dimensions: lhs {}x{}, rhs {}x{}",
@@ -90,7 +120,7 @@ pub fn simulate_gemm_tile(
         );
     }
 
-    let software = software_gemm(lhs, rhs)?;
+    let software = software_gemm_with_accumulator(lhs, rhs, accumulator)?;
     let response = executor.execute_gemm_tile(
         &GemmTileI16Request {
             audio_path: audio_path.to_owned(),
@@ -101,6 +131,10 @@ pub fn simulate_gemm_tile(
             },
             lhs_tile: lhs.values.clone(),
             rhs_tile: rhs.values.clone(),
+            accumulator_input: accumulator.map_or_else(
+                || vec![0_i64; lhs.rows * rhs.cols],
+                |accumulator| accumulator.values.clone(),
+            ),
             expected_output: software.values.clone(),
         },
         output_dir,

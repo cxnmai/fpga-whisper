@@ -10,7 +10,7 @@ Suggested subdirectories:
 - `scripts/`: export, packing, and memory-image tooling
 - `tb/`: standalone test benches for iverilog/vvp
 - `vectors/`: request/response vectors for host-simulator exchange
-- `tmp/`: transient simulator IO produced by the Rust scaffold
+- `tmp/`: transient simulator IO produced by the Rust scaffold, one scratch directory per invocation
 
 The target split for the FPGA is:
 
@@ -28,9 +28,10 @@ The host should continue to own:
 Current simulator scaffold:
 
 - Rust backend: `fpga-sim`
-- transport contract: JSON request/response files in `fpga/tmp/`
+- transport contract: JSON request/response files in per-run scratch directories under `fpga/tmp/`
 - simulator invocation: direct Rust -> `iverilog`/`vvp`
 - first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
 - first real testbench: `fpga/tb/dot_product_i16x8_tb.v`
 - first reusable tile primitive: `fpga/rtl/gemm_tile_i16x8.v`
+- accumulator-aware tile primitive: `fpga/rtl/gemm_tile_accum_i16x8.v`
 - first tile testbench: `fpga/tb/gemm_tile_i16x8_tb.v`

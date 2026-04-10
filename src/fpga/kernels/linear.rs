@@ -1,6 +1,8 @@
 use anyhow::{Result, bail};
 
-use crate::fpga::kernels::gemm::{GemmComparison, MatrixI16, simulate_gemm_tile};
+use crate::fpga::kernels::gemm::{
+    GemmComparison, MatrixI16, MatrixI64, simulate_gemm_tile_with_accumulator,
+};
 use crate::fpga::quant::FixedPointConfig;
 use crate::fpga::transport::FpgaExecutor;
 
@@ -55,10 +57,21 @@ pub fn software_linear(layer: &LinearLayerI16, input: &[i16]) -> Result<Vec<i64>
     }
 
     let input_matrix = MatrixI16::new(1, layer.input_dim, input.to_vec());
-    let gemm = crate::fpga::kernels::gemm::software_gemm(&input_matrix, &layer.weights)?;
-    Ok((0..layer.output_dim)
-        .map(|col| gemm.get(0, col) + layer.quant.bias_to_accumulator(layer.bias[col]))
-        .collect())
+    let bias_accumulator = MatrixI64::new(
+        1,
+        layer.output_dim,
+        layer
+            .bias
+            .iter()
+            .map(|bias| layer.quant.bias_to_accumulator(*bias))
+            .collect(),
+    );
+    let gemm = crate::fpga::kernels::gemm::software_gemm_with_accumulator(
+        &input_matrix,
+        &layer.weights,
+        Some(&bias_accumulator),
+    )?;
+    Ok(gemm.values)
 }
 
 pub fn simulate_linear(
@@ -78,17 +91,25 @@ pub fn simulate_linear(
     }
 
     let input_matrix = MatrixI16::new(1, layer.input_dim, input.to_vec());
-    let gemm = simulate_gemm_tile(
+    let bias_accumulator = MatrixI64::new(
+        1,
+        layer.output_dim,
+        layer
+            .bias
+            .iter()
+            .map(|bias| layer.quant.bias_to_accumulator(*bias))
+            .collect(),
+    );
+    let gemm = simulate_gemm_tile_with_accumulator(
         executor,
         output_dir,
         audio_path,
         &input_matrix,
         &layer.weights,
+        Some(&bias_accumulator),
     )?;
     let software_output = software_linear(layer, input)?;
-    let rtl_output = (0..layer.output_dim)
-        .map(|col| gemm.rtl.get(0, col) + layer.quant.bias_to_accumulator(layer.bias[col]))
-        .collect::<Vec<_>>();
+    let rtl_output = gemm.rtl.values.clone();
     let matched = gemm.matched && software_output == rtl_output;
 
     let mut notes = vec![

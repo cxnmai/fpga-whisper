@@ -1,5 +1,5 @@
 `timescale 1ns/1ps
-`include "fpga/tmp/dot_product_vectors.vh"
+`include "dot_product_vectors.vh"
 
 module dot_product_i16x8_tb;
     wire signed [63:0] result;
@@ -26,16 +26,16 @@ module dot_product_i16x8_tb;
     );
 
     initial begin
-        result_file = $fopen("fpga/tmp/dot_product_result.txt", "w");
+        result_file = $fopen("dot_product_result.txt", "w");
         if (result_file == 0) begin
-            $display("failed to open fpga/tmp/dot_product_result.txt");
+            $display("failed to open dot_product_result.txt");
             $finish;
         end
 
         #1;
         $fdisplay(result_file, "%0d", result);
         $fclose(result_file);
-        $dumpfile("fpga/tmp/dot_product_i16x8_tb.vcd");
+        $dumpfile("dot_product_i16x8_tb.vcd");
         $dumpvars(0, dot_product_i16x8_tb);
         #1;
         $finish;
