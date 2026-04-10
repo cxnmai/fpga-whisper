@@ -6,9 +6,14 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+import numpy as np
+
 SAMPLE_RATE = 16_000
+HOP_LENGTH = 160
 CHUNK_SECONDS = 30
 CHUNK_SAMPLES = SAMPLE_RATE * CHUNK_SECONDS
+FEATURE_SIZE = 80
+MAX_FRAMES = 3000
 MODEL_ALIAS = "distil-small.en"
 MODEL_REPO = "distil-whisper/distil-small.en"
 LANGUAGE_TOKEN = "<|en|>"
@@ -35,7 +40,10 @@ class TranscriptResponse:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="CTranslate2 Whisper worker.")
-    parser.add_argument("--audio", type=Path, required=True)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--audio", type=Path)
+    source_group.add_argument("--features-npy", type=Path)
+    parser.add_argument("--audio-duration-seconds", type=float)
     parser.add_argument("--initial-prompt")
     parser.add_argument(
         "--device",
@@ -53,6 +61,79 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def prompt_tokens_for(processor) -> list[int]:
+    return processor.tokenizer.convert_tokens_to_ids(
+        [
+            "<|startoftranscript|>",
+            LANGUAGE_TOKEN,
+            "<|transcribe|>",
+            "<|notimestamps|>",
+        ]
+    )
+
+
+def compute_features_cpu(processor, chunk: np.ndarray) -> np.ndarray:
+    features = processor.feature_extractor(
+        chunk,
+        sampling_rate=SAMPLE_RATE,
+        return_tensors="np",
+    ).input_features
+    return np.asarray(features, dtype=np.float32)
+
+
+def normalize_feature_tensor(path: Path) -> np.ndarray:
+    features = np.load(path)
+    features = np.asarray(features, dtype=np.float32)
+
+    if features.ndim == 2:
+        features = features[np.newaxis, ...]
+    if features.ndim != 3:
+        raise ValueError(
+            f"expected 2D or 3D feature tensor in {path}, got shape {features.shape!r}"
+        )
+    if features.shape[0] != 1:
+        raise ValueError(
+            f"expected batch size 1 in {path}, got shape {features.shape!r}"
+        )
+    if features.shape[1] != FEATURE_SIZE:
+        raise ValueError(
+            f"expected {FEATURE_SIZE} mel bins in {path}, got shape {features.shape!r}"
+        )
+    if features.shape[2] <= 0 or features.shape[2] > MAX_FRAMES:
+        raise ValueError(
+            f"expected frame count in [1, {MAX_FRAMES}] in {path}, got shape {features.shape!r}"
+        )
+
+    return np.ascontiguousarray(features)
+
+
+def infer_audio_duration_seconds(features: np.ndarray) -> float:
+    return float(features.shape[2] * HOP_LENGTH) / float(SAMPLE_RATE)
+
+
+def transcribe_from_features(
+    *,
+    model,
+    processor,
+    ctranslate2_module,
+    features: np.ndarray,
+    beam_size: int,
+) -> str:
+    features_view = ctranslate2_module.StorageView.from_array(
+        np.ascontiguousarray(features, dtype=np.float32)
+    )
+    results = model.generate(
+        features_view,
+        [prompt_tokens_for(processor)],
+        beam_size=beam_size,
+    )
+    token_ids = results[0].sequences_ids[0]
+    return processor.tokenizer.decode(
+        token_ids,
+        skip_special_tokens=True,
+    ).strip()
+
+
 def response_with_notes(model: str, *notes: str) -> TranscriptResponse:
     return TranscriptResponse(
         backend="ct2-python",
@@ -66,7 +147,7 @@ def response_with_notes(model: str, *notes: str) -> TranscriptResponse:
 def main() -> int:
     args = parse_args()
 
-    if not args.audio.exists():
+    if args.audio is not None and not args.audio.exists():
         print(
             response_with_notes(
                 MODEL_REPO,
@@ -101,19 +182,8 @@ def main() -> int:
             compute_type=args.compute_type,
         )
 
-        audio = decode_audio(str(args.audio), sampling_rate=SAMPLE_RATE)
-        if len(audio) == 0:
-            print(
-                response_with_notes(
-                    MODEL_REPO,
-                    f"Decoded zero samples from {args.audio}.",
-                    "No transcription was attempted.",
-                ).to_json()
-            )
-            return 0
-
         notes = [
-            "Direct CTranslate2 baseline with fixed 30 second chunking and baked-in English mode.",
+            "Direct CTranslate2 baseline with a shared features -> CT2 inference path and baked-in English mode.",
             f"Model alias: {MODEL_ALIAS}",
             f"Model path: {model_path}",
             f"Device: {args.device}",
@@ -125,57 +195,95 @@ def main() -> int:
             )
 
         segments: list[TranscriptSegment] = []
+        audio_duration_seconds = 0.0
 
-        for start in range(0, len(audio), CHUNK_SAMPLES):
-            stop = min(len(audio), start + CHUNK_SAMPLES)
-            chunk = audio[start:stop]
-            if len(chunk) == 0:
-                continue
+        if args.audio is not None:
+            audio = decode_audio(str(args.audio), sampling_rate=SAMPLE_RATE)
+            if len(audio) == 0:
+                print(
+                    response_with_notes(
+                        MODEL_REPO,
+                        f"Decoded zero samples from {args.audio}.",
+                        "No transcription was attempted.",
+                    ).to_json()
+                )
+                return 0
 
-            features = processor.feature_extractor(
-                chunk,
-                sampling_rate=SAMPLE_RATE,
-                return_tensors="np",
-            ).input_features
-            features_view = ctranslate2.StorageView.from_array(features)
-
-            prompt_tokens = processor.tokenizer.convert_tokens_to_ids(
-                [
-                    "<|startoftranscript|>",
-                    LANGUAGE_TOKEN,
-                    "<|transcribe|>",
-                    "<|notimestamps|>",
-                ]
+            audio_duration_seconds = len(audio) / SAMPLE_RATE
+            notes.append(
+                "Feature source: CPU WhisperFeatureExtractor frontend (30 second chunking)."
             )
 
-            results = model.generate(
-                features_view,
-                [prompt_tokens],
+            for start in range(0, len(audio), CHUNK_SAMPLES):
+                stop = min(len(audio), start + CHUNK_SAMPLES)
+                chunk = audio[start:stop]
+                if len(chunk) == 0:
+                    continue
+
+                features = compute_features_cpu(processor, chunk)
+                text = transcribe_from_features(
+                    model=model,
+                    processor=processor,
+                    ctranslate2_module=ctranslate2,
+                    features=features,
+                    beam_size=args.beam_size,
+                )
+
+                if not text:
+                    continue
+
+                segments.append(
+                    TranscriptSegment(
+                        start_seconds=start / SAMPLE_RATE,
+                        end_seconds=stop / SAMPLE_RATE,
+                        text=text,
+                    )
+                )
+        else:
+            if not args.features_npy.exists():
+                print(
+                    response_with_notes(
+                        MODEL_REPO,
+                        f"Feature tensor file does not exist: {args.features_npy}",
+                        "No transcription was attempted.",
+                    ).to_json()
+                )
+                return 0
+
+            features = normalize_feature_tensor(args.features_npy)
+            audio_duration_seconds = (
+                args.audio_duration_seconds
+                if args.audio_duration_seconds is not None
+                else infer_audio_duration_seconds(features)
+            )
+            notes.append(
+                "Feature source: external precomputed log-mel tensor supplied to the worker."
+            )
+            notes.append(
+                f"Feature tensor shape: {tuple(int(dim) for dim in features.shape)!r}"
+            )
+
+            text = transcribe_from_features(
+                model=model,
+                processor=processor,
+                ctranslate2_module=ctranslate2,
+                features=features,
                 beam_size=args.beam_size,
             )
-
-            token_ids = results[0].sequences_ids[0]
-            text = processor.tokenizer.decode(
-                token_ids,
-                skip_special_tokens=True,
-            ).strip()
-
-            if not text:
-                continue
-
-            segments.append(
-                TranscriptSegment(
-                    start_seconds=start / SAMPLE_RATE,
-                    end_seconds=stop / SAMPLE_RATE,
-                    text=text,
+            if text:
+                segments.append(
+                    TranscriptSegment(
+                        start_seconds=0.0,
+                        end_seconds=audio_duration_seconds,
+                        text=text,
+                    )
                 )
-            )
 
         print(
             TranscriptResponse(
                 backend="ct2-python",
                 model=MODEL_REPO,
-                audio_duration_seconds=len(audio) / SAMPLE_RATE,
+                audio_duration_seconds=audio_duration_seconds,
                 notes=notes,
                 segments=segments,
             ).to_json()

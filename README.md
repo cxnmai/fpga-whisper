@@ -65,6 +65,7 @@ uv run fpga-whisper plan
 uv run fpga-whisper transcribe samples/silence.wav --backend ct2-python
 uv run fpga-whisper transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 uv run fpga-whisper gemm-check
+uv run fpga-whisper logmel-frame-check
 uv run fpga-whisper linear-check
 uv run fpga-whisper projection-tile-check
 uv run fpga-whisper projection-sweep-check
@@ -80,6 +81,7 @@ You can also run the packaged helper entrypoints directly:
 
 ```bash
 uv run fpga-whisper-ct2-worker --audio samples/silence.wav
+uv run fpga-whisper-ct2-worker --features-npy artifacts/tmp/jfk_features.npy --audio-duration-seconds 11.0
 uv run fpga-whisper-export-reference-activation --audio samples/jfk.flac --positions 4 --output artifacts/reference/test.json
 ```
 
@@ -98,6 +100,24 @@ Set up and smoke-test the baseline worker with:
 ```bash
 uv sync
 uv run fpga-whisper-ct2-worker --audio samples/silence.wav
+```
+
+The worker now has an explicit `features -> CT2` boundary for future FPGA frontend offload. It accepts either:
+
+- `--audio <path>`: decode audio and compute log-mel features on the host
+- `--features-npy <path>`: load a precomputed feature tensor and skip host feature extraction
+
+The expected precomputed feature shape is:
+
+- `(80, frames)` or `(1, 80, frames)`
+- current Whisper frontend target: `(1, 80, 3000)` for a 30 second chunk
+
+If the feature tensor was produced from padded audio, pass the real chunk duration explicitly:
+
+```bash
+uv run fpga-whisper-ct2-worker \
+  --features-npy artifacts/tmp/jfk_features.npy \
+  --audio-duration-seconds 11.0
 ```
 
 Optional environment variables:
@@ -133,7 +153,7 @@ This path keeps the FPGA workflow intact:
 
 - Python host orchestrates the pipeline
 - `fpga-sim` writes each request into its own scratch directory under `fpga/tmp/`
-- Python launches the direct `iverilog`/`vvp` simulator flow and reads the response JSON back
+- Python launches the direct `iverilog`/`vvp` simulator flow and reads simulator outputs back into the host runtime
 
 This keeps the eventual real-FPGA interface aligned with the simulator interface.
 
@@ -149,20 +169,43 @@ Try the first hardware-facing scaffold with:
 uv run fpga-whisper transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 ```
 
-Today that path exercises a real RTL smoke primitive:
+Today that path performs a real frontend-assisted transcription:
 
-- signed int16 x int16 8-lane dot product
-- request vectors written by the host runtime
-- result checked against software on the host
+- host decodes audio and computes the Whisper power spectrogram
+- RTL performs batched `power spectrum -> mel accumulation`
+- host applies Whisper `log10`, clamp, and normalization
+- host feeds the resulting feature tensor into the shared `features -> CT2` worker path
+
+On the included JFK sample, that produces a real transcript through the frontend boundary:
+
+```text
+[0.00..11.00] And so my fellow American, ask not what your country can do for you, ask what you can do for your country. Ask not what you can do for your country.
+```
+
+For comparison, the CPU baseline produces:
+
+```text
+[0.00..11.00] And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country.
+```
+
+The wording drift is expected at this stage because the frontend path is already numerically different from the host feature extractor.
 
 Above that primitive, there is now a kernel-layer validation path:
 
 ```bash
 uv run fpga-whisper gemm-check
+uv run fpga-whisper logmel-frame-check
 uv run fpga-whisper linear-check
 ```
 
 `gemm-check` validates a tile-level matrix multiply contract.
+
+`logmel-frame-check` validates the first frontend-oriented Verilog path on a real audio frame:
+
+- host decodes audio and selects a high-energy frame
+- host computes a power spectrum and quantized mel coefficients
+- RTL computes `power spectrum -> mel -> log-mel`
+- host compares the RTL output against the same fixed-point reference path
 
 `linear-check` validates a simple linear layer on top of that tile contract, including bias addition and the current placeholder fixed-point format choice.
 
@@ -247,4 +290,5 @@ The goal remains the same: wire in an FPGA to run meaningful parts of Whisper on
 3. Tighten the quantization contract for wider accumulated output tiles.
 4. Tighten the GELU approximation against float reference behavior.
 5. Build the second FFN linear on top of the accumulated projection + GELU path.
-6. Replace the simulation-only transport with a real FPGA transport while keeping the host/runtime contracts stable.
+6. Tighten the chunk-level frontend path until the `fpga-sim` transcription output converges toward the CPU baseline.
+7. Replace the simulation-only transport with a real FPGA transport while keeping the host/runtime contracts stable.

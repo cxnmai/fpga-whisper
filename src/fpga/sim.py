@@ -12,9 +12,13 @@ from .transport import (
     DotProductResponse,
     GeluBlockRequest,
     GeluBlockResponse,
+    MelFrameBatchRequest,
+    MelFrameBatchResponse,
     GemmTileBatchI16Request,
     GemmTileI16Request,
     GemmTileI64Response,
+    LogMelFrameRequest,
+    LogMelFrameResponse,
 )
 
 
@@ -138,6 +142,53 @@ class IverilogSimExecutor:
                 f"Scratch directory: {scratch_dir}",
                 f"Waveform: {scratch_dir / 'gemm_tile_i16x8_tb.vcd'}",
                 "This accumulator tile primitive can keep partial sums on the FPGA boundary.",
+            ],
+        )
+        self._write_json(response_path, response.to_dict())
+        return response
+
+    def execute_mel_frame_batch(
+        self,
+        request: MelFrameBatchRequest,
+        output_dir: Path,
+    ) -> MelFrameBatchResponse:
+        request.validate()
+
+        scratch_dir = self._create_scratch_dir(output_dir, "mel_frame_batch")
+        request_path = scratch_dir / "sim_request.json"
+        response_path = scratch_dir / "sim_response.json"
+        result_path = scratch_dir / "mel_frame_batch_result.txt"
+        self._write_u24_mem(scratch_dir / "power_frames.mem", request.power_frames)
+        self._write_i16_mem(scratch_dir / "mel_coeff.mem", request.mel_coefficients)
+
+        self._write_json(request_path, request.to_dict())
+        vvp_output_path = self._compiled_mel_frame_batch_binary(
+            output_dir,
+            request.frame_count,
+        )
+        self._run_command(
+            [str(self.vvp), str(vvp_output_path)],
+            cwd=scratch_dir,
+            display_name=str(self.vvp),
+        )
+
+        rtl_output = [
+            int(line.strip())
+            for line in result_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        response = MelFrameBatchResponse(
+            frame_count=request.frame_count,
+            rtl_output=rtl_output,
+            expected_output=list(request.expected_output),
+            matched=rtl_output == request.expected_output,
+            notes=[
+                "Executed real RTL mel frame batch through a cached iverilog/vvp simulation binary.",
+                f"Received audio path: {request.audio_path}",
+                f"Operation: mel-frame-batch ({request.frame_count} frames)",
+                f"Scratch directory: {scratch_dir}",
+                f"Waveform: {scratch_dir / 'mel_frame_batch_tb.vcd'}",
+                "This is the chunkable frontend bridge toward real FPGA-assisted transcription.",
             ],
         )
         self._write_json(response_path, response.to_dict())
@@ -276,6 +327,49 @@ class IverilogSimExecutor:
         self._write_json(response_path, response.to_dict())
         return response
 
+    def execute_logmel_frame(
+        self,
+        request: LogMelFrameRequest,
+        output_dir: Path,
+    ) -> LogMelFrameResponse:
+        request.validate()
+
+        scratch_dir = self._create_scratch_dir(output_dir, "logmel")
+        request_path = scratch_dir / "sim_request.json"
+        response_path = scratch_dir / "sim_response.json"
+        result_path = scratch_dir / "logmel_result.txt"
+        self._write_u24_mem(scratch_dir / "power_spectrum.mem", request.power_spectrum)
+        self._write_i16_mem(scratch_dir / "mel_coeff.mem", request.mel_coefficients)
+
+        self._write_json(request_path, request.to_dict())
+        vvp_output_path = self._compiled_logmel_binary(output_dir)
+        self._run_command(
+            [str(self.vvp), str(vvp_output_path)],
+            cwd=scratch_dir,
+            display_name=str(self.vvp),
+        )
+
+        rtl_output = [
+            int(line.strip())
+            for line in result_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        response = LogMelFrameResponse(
+            rtl_output=rtl_output,
+            expected_output=list(request.expected_output),
+            matched=rtl_output == request.expected_output,
+            notes=[
+                "Executed real RTL log-mel frame block through a cached iverilog/vvp simulation binary.",
+                f"Received audio path: {request.audio_path}",
+                "Operation: logmel-frame",
+                f"Scratch directory: {scratch_dir}",
+                f"Waveform: {scratch_dir / 'log_mel_frame_tb.vcd'}",
+                "This is the first frontend-oriented Verilog block on the future transcription path.",
+            ],
+        )
+        self._write_json(response_path, response.to_dict())
+        return response
+
     def _create_scratch_dir(self, output_dir: Path, prefix: str) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
         output_dir = output_dir.resolve()
@@ -360,6 +454,36 @@ class IverilogSimExecutor:
         self._ensure_compiled(binary_path, sources)
         return binary_path
 
+    def _compiled_logmel_binary(self, output_dir: Path) -> Path:
+        binary_path = self._build_dir(output_dir) / "log_mel_frame_tb.vvp"
+        sources = [
+            self.project_root / "fpga/rtl/mel_filterbank_201x80.v",
+            self.project_root / "fpga/rtl/log_mel_q8_8.v",
+            self.project_root / "fpga/rtl/log_mel_frame.v",
+            self.project_root / "fpga/tb/log_mel_frame_tb.v",
+        ]
+        self._ensure_compiled(binary_path, sources)
+        return binary_path
+
+    def _compiled_mel_frame_batch_binary(
+        self,
+        output_dir: Path,
+        frame_count: int,
+    ) -> Path:
+        binary_path = (
+            self._build_dir(output_dir) / f"mel_frame_batch_tb_n{frame_count}.vvp"
+        )
+        sources = [
+            self.project_root / "fpga/rtl/mel_filterbank_201x80.v",
+            self.project_root / "fpga/tb/mel_frame_batch_tb.v",
+        ]
+        parameters = [
+            "-P",
+            f"mel_frame_batch_tb.FRAME_COUNT={frame_count}",
+        ]
+        self._ensure_compiled(binary_path, sources, parameters)
+        return binary_path
+
     def _ensure_compiled(
         self,
         binary_path: Path,
@@ -425,6 +549,10 @@ class IverilogSimExecutor:
     @classmethod
     def _write_i16_mem(cls, path: Path, values: Sequence[int]) -> None:
         cls._write_mem(path, values, bits=16)
+
+    @classmethod
+    def _write_u24_mem(cls, path: Path, values: Sequence[int]) -> None:
+        cls._write_mem(path, values, bits=24)
 
     @classmethod
     def _write_i64_mem(cls, path: Path, values: Sequence[int]) -> None:

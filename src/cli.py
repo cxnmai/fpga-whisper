@@ -58,6 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
     profile.add_argument("--sample-interval-ms", type=int, default=250)
 
     subparsers.add_parser("gemm-check", help="Validate the FPGA GEMM tile path.")
+    subparsers.add_parser(
+        "logmel-frame-check",
+        help="Validate the FPGA log-mel frontend block on one audio frame.",
+    )
     subparsers.add_parser("linear-check", help="Validate the FPGA linear layer path.")
     subparsers.add_parser(
         "projection-tile-check", help="Validate one projection tile from the model."
@@ -115,6 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     fpga_handlers = {
         "gemm-check": "run_gemm_check",
+        "logmel-frame-check": "run_logmel_frame_check",
         "linear-check": "run_linear_check",
         "projection-tile-check": "run_projection_tile_check",
         "projection-sweep-check": "run_projection_sweep_check",

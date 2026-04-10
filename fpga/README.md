@@ -28,7 +28,7 @@ The host should continue to own:
 Current simulator scaffold:
 
 - Python backend: `fpga-sim`
-- transport contract: JSON request/response files in per-run scratch directories under `fpga/tmp/`
+- transport contract: per-run scratch directories under `fpga/tmp/` with host-generated memfiles, simulator outputs, and optional debug artifacts
 - simulator invocation: host runtime -> direct `iverilog` / `vvp`
 - first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
 - first real testbench: `fpga/tb/dot_product_i16x8_tb.v`
@@ -38,5 +38,17 @@ Current simulator scaffold:
 - first activation primitive: `fpga/rtl/gelu_pwl_q8_8.v`
 - first activation vector wrapper: `fpga/rtl/gelu_pwl_q8_8x8.v`
 - first activation testbench: `fpga/tb/gelu_pwl_q8_8x8_tb.v`
+- first frontend mel primitive: `fpga/rtl/mel_filterbank_201x80.v`
+- first frontend log primitive: `fpga/rtl/log_mel_q8_8.v`
+- first frontend frame wrapper: `fpga/rtl/log_mel_frame.v`
+- first frontend testbench: `fpga/tb/log_mel_frame_tb.v`
+- first frontend batch testbench: `fpga/tb/mel_frame_batch_tb.v`
+
+The current frontend simulation path is already able to drive a real transcription:
+
+- host computes Whisper-compatible power spectra
+- RTL computes batched mel accumulation
+- host applies Whisper log/clamp normalization
+- host passes the resulting feature tensor into the shared CTranslate2 worker path
 
 The goal of this workspace is unchanged: keep the hardware boundary stable while progressively moving meaningful parts of Whisper onto the FPGA.

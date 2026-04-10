@@ -19,6 +19,16 @@ from .fpga.kernels.linear import (
     format_vector_i64,
     simulate_linear,
 )
+from .fpga.kernels.logmel import (
+    FFT_BINS,
+    LOG_OUTPUT_FRAC_BITS,
+    MEL_BINS,
+    LogMelFrameComparison,
+    build_mel_filterbank,
+    quantize_mel_filterbank,
+    simulate_logmel_frame,
+    software_logmel_frame,
+)
 from .fpga.quant import Q8_8, FixedPointConfig
 from .fpga.sim import IverilogSimExecutor
 from .fpga.transport import GemmTileBatchI16Request, GemmTileI16Request, GemmTileShape
@@ -31,6 +41,8 @@ from .model.reference import (
 WEIGHT_NAME = "encoder/layer_0/ffn/linear_0/weight"
 BIAS_NAME = "encoder/layer_0/ffn/linear_0/bias"
 REFERENCE_AUDIO = Path("samples/jfk.flac")
+POWER_BIN_BITS = 24
+POWER_BIN_QMAX = (1 << POWER_BIN_BITS) - 1
 
 
 @dataclass(slots=True)
@@ -137,6 +149,58 @@ def run_gemm_check(config: AppConfig) -> None:
     print_matrix_i64(comparison.software)
     print("rtl result:")
     print_matrix_i64(comparison.rtl)
+    print("notes:")
+    for note in dedupe_notes(comparison.notes):
+        print(f"- {note}")
+
+
+def run_logmel_frame_check(config: AppConfig) -> None:
+    executor = IverilogSimExecutor(project_root=config.project_root)
+    power_spectrum, frame_start_seconds = build_demo_power_spectrum(config)
+    mel_coefficients = quantize_mel_filterbank(
+        build_mel_filterbank(sample_rate=16_000, n_fft=400, n_mels=MEL_BINS)
+    )
+    comparison = simulate_logmel_frame(
+        executor=executor,
+        output_dir=config.resolved_fpga_sim_io_dir,
+        audio_path=str(config.resolve_project_path(REFERENCE_AUDIO)),
+        power_spectrum=power_spectrum,
+        mel_coefficients=mel_coefficients,
+    )
+    mel_accumulators, expected_output = software_logmel_frame(
+        power_spectrum,
+        mel_coefficients,
+    )
+
+    print(f"logmel_frame_check: matched = {comparison.matched}")
+    print(f"reference audio: {config.resolve_project_path(REFERENCE_AUDIO)}")
+    print(f"frame start seconds: {frame_start_seconds:.3f}")
+    print("frontend contract: power spectrum (201 bins) -> log-mel (80 bins)")
+    print("approximation: triangular mel filterbank with fixed-point log2-linear q8.8")
+    print(f"power spectrum bins: {FFT_BINS}")
+    print(f"mel bins: {MEL_BINS}")
+    print(f"first 16 power bins: {format_vector_i16(comparison.power_spectrum[:16])}")
+    print(
+        "first 8 mel accumulators: "
+        f"{format_vector_i64(mel_accumulators[:8].astype(np.int64, copy=False).tolist())}"
+    )
+    print(
+        "expected log-mel q8.8 first 16: "
+        f"{format_vector_i16(expected_output[:16].astype(np.int64, copy=False).tolist())}"
+    )
+    print(
+        "rtl log-mel q8.8 first 16: "
+        f"{format_vector_i16(comparison.rtl_output[:16])}"
+    )
+    print(
+        "expected log-mel float first 16: "
+        f"{format_vector_f32(comparison.expected_dequantized[:16])}"
+    )
+    print(
+        "rtl log-mel float first 16: "
+        f"{format_vector_f32(comparison.rtl_dequantized[:16])}"
+    )
+    print(f"max_abs_error: {max_abs_diff(comparison.expected_dequantized, comparison.rtl_dequantized):.6f}")
     print("notes:")
     for note in dedupe_notes(comparison.notes):
         print(f"- {note}")
@@ -883,6 +947,45 @@ def compute_float_projection(
     outputs = weight_window @ input_array[:tile_inner]
     outputs = outputs + bias_array[output_start : output_start + tile_cols]
     return outputs.tolist()
+
+
+def build_demo_power_spectrum(config: AppConfig) -> tuple[np.ndarray, float]:
+    from faster_whisper.audio import decode_audio
+
+    sample_rate = 16_000
+    n_fft = 400
+    hop_length = 160
+    audio_path = config.resolve_project_path(REFERENCE_AUDIO)
+    audio = decode_audio(str(audio_path), sampling_rate=sample_rate)
+    if len(audio) == 0:
+        raise RuntimeError(f"decoded zero samples from {audio_path}")
+
+    if len(audio) <= n_fft:
+        best_start = 0
+    else:
+        candidate_starts = np.arange(0, len(audio) - n_fft + 1, hop_length, dtype=np.int64)
+        energies = np.empty(candidate_starts.shape[0], dtype=np.float32)
+        for index, start in enumerate(candidate_starts):
+            frame_view = np.asarray(audio[start : start + n_fft], dtype=np.float32)
+            energies[index] = float(np.dot(frame_view, frame_view))
+        best_start = int(candidate_starts[int(np.argmax(energies))])
+
+    frame = np.zeros(n_fft, dtype=np.float32)
+    usable = min(len(audio) - best_start, n_fft)
+    frame[:usable] = np.asarray(audio[best_start : best_start + usable], dtype=np.float32)
+    window = np.hanning(n_fft).astype(np.float32)
+    spectrum = np.fft.rfft(frame * window, n=n_fft)
+    power = np.abs(spectrum) ** 2
+    max_power = float(np.max(power))
+    if max_power <= 0.0:
+        quantized = np.zeros(FFT_BINS, dtype=np.uint32)
+    else:
+        quantized = np.clip(
+            np.rint((power / max_power) * POWER_BIN_QMAX),
+            0,
+            POWER_BIN_QMAX,
+        ).astype(np.uint32)
+    return quantized, float(best_start) / float(sample_rate)
 
 
 def build_output_starts(output_dim: int, tile_cols: int) -> list[int]:

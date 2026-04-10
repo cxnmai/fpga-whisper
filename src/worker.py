@@ -17,6 +17,26 @@ def build_ct2_worker_command(config: Any, request: Any) -> list[str]:
     return command
 
 
+def build_ct2_worker_features_command(
+    config: Any,
+    *,
+    features_path,
+    audio_duration_seconds: float,
+    initial_prompt: str | None = None,
+) -> list[str]:
+    command = [
+        sys.executable,
+        str(config.worker_script_path),
+        "--features-npy",
+        str(features_path),
+        "--audio-duration-seconds",
+        f"{audio_duration_seconds:.6f}",
+    ]
+    if initial_prompt:
+        command.extend(["--initial-prompt", initial_prompt])
+    return command
+
+
 def build_worker_env(config: Any) -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("UV_CACHE_DIR", str(config.uv_cache_dir))

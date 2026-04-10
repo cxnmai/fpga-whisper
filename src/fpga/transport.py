@@ -184,6 +184,129 @@ class GeluBlockResponse:
         }
 
 
+@dataclass(slots=True)
+class LogMelFrameRequest:
+    audio_path: str
+    power_spectrum: list[int]
+    mel_coefficients: list[int]
+    expected_output: list[int]
+
+    def validate(self) -> None:
+        if len(self.power_spectrum) != 201:
+            raise ValueError(
+                f"log-mel simulator expects 201 power bins, got {len(self.power_spectrum)}"
+            )
+        expected_coeffs = 80 * 201
+        if len(self.mel_coefficients) != expected_coeffs:
+            raise ValueError(
+                f"log-mel simulator expects {expected_coeffs} mel coefficients, got {len(self.mel_coefficients)}"
+            )
+        if len(self.expected_output) != 80:
+            raise ValueError(
+                f"log-mel simulator expects 80 output bins, got {len(self.expected_output)}"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "audio_path": self.audio_path,
+            "power_spectrum": list(self.power_spectrum),
+            "mel_coefficients": list(self.mel_coefficients),
+            "expected_output": list(self.expected_output),
+        }
+
+
+@dataclass(slots=True)
+class LogMelFrameResponse:
+    rtl_output: list[int]
+    expected_output: list[int]
+    matched: bool
+    notes: list[str] = field(default_factory=list)
+
+    def validate(self) -> None:
+        if len(self.rtl_output) != 80:
+            raise ValueError(
+                f"log-mel simulator expects 80 RTL output bins, got {len(self.rtl_output)}"
+            )
+        if len(self.expected_output) != 80:
+            raise ValueError(
+                f"log-mel simulator expects 80 expected output bins, got {len(self.expected_output)}"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "rtl_output": list(self.rtl_output),
+            "expected_output": list(self.expected_output),
+            "matched": self.matched,
+            "notes": list(self.notes),
+        }
+
+
+@dataclass(slots=True)
+class MelFrameBatchRequest:
+    audio_path: str
+    frame_count: int
+    power_frames: list[int]
+    mel_coefficients: list[int]
+    expected_output: list[int]
+
+    def validate(self) -> None:
+        if self.frame_count <= 0:
+            raise ValueError("mel frame batch expects a positive frame count")
+        expected_power = self.frame_count * 201
+        expected_output = self.frame_count * 80
+        expected_coeffs = 80 * 201
+        if len(self.power_frames) != expected_power:
+            raise ValueError(
+                f"mel frame batch expects {expected_power} power bins, got {len(self.power_frames)}"
+            )
+        if len(self.mel_coefficients) != expected_coeffs:
+            raise ValueError(
+                f"mel frame batch expects {expected_coeffs} mel coefficients, got {len(self.mel_coefficients)}"
+            )
+        if len(self.expected_output) != expected_output:
+            raise ValueError(
+                f"mel frame batch expects {expected_output} outputs, got {len(self.expected_output)}"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "audio_path": self.audio_path,
+            "frame_count": self.frame_count,
+            "power_frames": list(self.power_frames),
+            "mel_coefficients": list(self.mel_coefficients),
+            "expected_output": list(self.expected_output),
+        }
+
+
+@dataclass(slots=True)
+class MelFrameBatchResponse:
+    frame_count: int
+    rtl_output: list[int]
+    expected_output: list[int]
+    matched: bool
+    notes: list[str] = field(default_factory=list)
+
+    def validate(self) -> None:
+        expected_output = self.frame_count * 80
+        if len(self.rtl_output) != expected_output:
+            raise ValueError(
+                f"mel frame batch expects {expected_output} RTL outputs, got {len(self.rtl_output)}"
+            )
+        if len(self.expected_output) != expected_output:
+            raise ValueError(
+                f"mel frame batch expects {expected_output} expected outputs, got {len(self.expected_output)}"
+            )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "frame_count": self.frame_count,
+            "rtl_output": list(self.rtl_output),
+            "expected_output": list(self.expected_output),
+            "matched": self.matched,
+            "notes": list(self.notes),
+        }
+
+
 class FpgaExecutor(Protocol):
     def name(self) -> str: ...
 
@@ -210,3 +333,15 @@ class FpgaExecutor(Protocol):
         request: GeluBlockRequest,
         output_dir: Path,
     ) -> GeluBlockResponse: ...
+
+    def execute_logmel_frame(
+        self,
+        request: LogMelFrameRequest,
+        output_dir: Path,
+    ) -> LogMelFrameResponse: ...
+
+    def execute_mel_frame_batch(
+        self,
+        request: MelFrameBatchRequest,
+        output_dir: Path,
+    ) -> MelFrameBatchResponse: ...
