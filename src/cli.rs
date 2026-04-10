@@ -4,6 +4,8 @@ use std::time::Instant;
 
 use crate::backend::{build_backend, describe_backend};
 use crate::config::AppConfig;
+use crate::fpga::kernels::gemm::{MatrixI16, simulate_gemm_via_dot_products};
+use crate::fpga::sim::IverilogSimExecutor;
 use crate::profiling::{profile_request, render_samples_table, render_summary_table};
 use crate::tui::run_tui;
 use crate::types::{BackendKind, BenchmarkRun, PartitionPreset, Transcript, TranscriptionRequest};
@@ -57,6 +59,7 @@ enum Commands {
         #[arg(long)]
         initial_prompt: Option<String>,
     },
+    GemmCheck,
     Tui,
 }
 
@@ -132,10 +135,72 @@ pub fn run() -> Result<()> {
             println!();
             print_transcript(&report.transcript);
         }
+        Commands::GemmCheck => {
+            run_gemm_check(&config)?;
+        }
         Commands::Tui => run_tui(config)?,
     }
 
     Ok(())
+}
+
+fn run_gemm_check(config: &AppConfig) -> Result<()> {
+    let executor = IverilogSimExecutor::new(config.project_root.clone());
+    let lhs = MatrixI16::new(
+        2,
+        8,
+        vec![
+            3, -2, 7, 4, -1, 5, 2, -3, //
+            1, 6, -5, 2, 8, -4, 3, 7,
+        ],
+    );
+    let rhs = MatrixI16::new(
+        8,
+        2,
+        vec![
+            6, 1, //
+            8, -3, //
+            -4, 2, //
+            1, 9, //
+            9, -1, //
+            -2, 5, //
+            3, 4, //
+            5, -6,
+        ],
+    );
+
+    let comparison = simulate_gemm_via_dot_products(
+        &executor,
+        &config.fpga_sim_io_dir,
+        "samples/jfk.flac",
+        &lhs,
+        &rhs,
+    )?;
+
+    println!("gemm_check: matched = {}", comparison.matched);
+    println!("software result:");
+    print_matrix_i64(&comparison.software);
+    println!("rtl result:");
+    print_matrix_i64(&comparison.rtl);
+    println!("notes:");
+    let mut deduped = std::collections::BTreeSet::new();
+    for note in comparison.notes {
+        if !deduped.insert(note.clone()) {
+            continue;
+        }
+        println!("- {note}");
+    }
+
+    Ok(())
+}
+
+fn print_matrix_i64(matrix: &crate::fpga::kernels::gemm::MatrixI64) {
+    for row in 0..matrix.rows {
+        let values = (0..matrix.cols)
+            .map(|col| matrix.get(row, col).to_string())
+            .collect::<Vec<_>>();
+        println!("[{}]", values.join(", "));
+    }
 }
 
 fn print_transcript(transcript: &Transcript) {

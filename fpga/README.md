@@ -29,6 +29,6 @@ Current simulator scaffold:
 
 - Rust backend: `fpga-sim`
 - transport contract: JSON request/response files in `fpga/tmp/`
-- bridge script: `fpga/scripts/run_fpga_sim.py`
+- simulator invocation: direct Rust -> `iverilog`/`vvp`
 - first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
 - first real testbench: `fpga/tb/dot_product_i16x8_tb.v`

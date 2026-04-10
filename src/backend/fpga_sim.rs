@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use anyhow::Result;
 
 use crate::backend::TranscriptionBackend;
+use crate::fpga::kernels::dot::simulate_dot_product;
 use crate::fpga::sim::IverilogSimExecutor;
-use crate::fpga::transport::{FpgaExecutor, FpgaSimRequest};
+use crate::fpga::transport::FpgaExecutor;
 use crate::types::{
     BackendDescriptor, BackendKind, MODEL_HF_REPO, Transcript, TranscriptSegment,
     TranscriptionRequest,
@@ -40,21 +41,12 @@ impl TranscriptionBackend for FpgaSimBackend {
 
         let vector_a = vec![3, -2, 7, 4, -1, 5, 2, -3];
         let vector_b = vec![6, 8, -4, 1, 9, -2, 3, 5];
-        let expected_result = vector_a
-            .iter()
-            .zip(&vector_b)
-            .map(|(lhs, rhs)| i64::from(*lhs) * i64::from(*rhs))
-            .sum::<i64>();
-
-        let response = self.executor.execute_stage(
-            &FpgaSimRequest {
-                operation: "dot-product".to_owned(),
-                audio_path: request.audio_path.display().to_string(),
-                vector_a: vector_a.clone(),
-                vector_b: vector_b.clone(),
-                expected_result,
-            },
+        let response = simulate_dot_product(
+            &self.executor,
             &self.io_dir,
+            &request.audio_path.display().to_string(),
+            &vector_a,
+            &vector_b,
         )?;
 
         Ok(Transcript {

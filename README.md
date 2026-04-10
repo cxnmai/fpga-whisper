@@ -40,6 +40,7 @@ That gives the project a clean path from:
 cargo run -- plan
 cargo run -- transcribe samples/demo.wav --backend ct2-python
 cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
+cargo run -- gemm-check
 cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
 cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 cargo run -- tui
@@ -82,7 +83,7 @@ The first hardware-facing scaffold keeps Python out of the RTL boundary:
 
 - Rust host orchestrates the pipeline
 - `fpga-sim` writes a request JSON into `fpga/tmp/`
-- a simulator bridge script generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
+- Rust generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
 - Rust parses the response and continues the flow
 
 This keeps the eventual real-FPGA interface aligned with the simulator interface.
@@ -98,6 +99,14 @@ Today that path exercises a real RTL smoke primitive:
 - signed int16 x int16 8-lane dot product
 - request vectors written by Rust
 - result checked against software on the host
+
+Above that primitive, there is now a kernel-layer validation path:
+
+```bash
+cargo run -- gemm-check
+```
+
+This composes repeated RTL dot products into a small GEMM check, which is the right direction for wiring model layers later.
 
 ## Benchmarking
 
