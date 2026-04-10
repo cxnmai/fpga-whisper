@@ -8,6 +8,8 @@ use crate::fpga::kernels::gemm::{MatrixI16, MatrixI64, simulate_gemm_tile};
 use crate::fpga::kernels::linear::{LinearLayerI16, format_vector_i64, simulate_linear};
 use crate::fpga::quant::FixedPointConfig;
 use crate::fpga::sim::IverilogSimExecutor;
+use crate::model::ct2::Ct2ModelBin;
+use crate::model::reference::{ensure_reference_activation_export, load_reference_activation};
 use crate::profiling::{profile_request, render_samples_table, render_summary_table};
 use crate::tui::run_tui;
 use crate::types::{BackendKind, BenchmarkRun, PartitionPreset, Transcript, TranscriptionRequest};
@@ -63,6 +65,7 @@ enum Commands {
     },
     GemmCheck,
     LinearCheck,
+    ProjectionTileCheck,
     Tui,
 }
 
@@ -143,6 +146,9 @@ pub fn run() -> Result<()> {
         }
         Commands::LinearCheck => {
             run_linear_check(&config)?;
+        }
+        Commands::ProjectionTileCheck => {
+            run_projection_tile_check(&config)?;
         }
         Commands::Tui => run_tui(config)?,
     }
@@ -236,12 +242,179 @@ fn run_linear_check(config: &AppConfig) -> Result<()> {
     println!("linear_check: quantization = {}", layer.quant.description());
     println!("input: {:?}", input);
     println!(
-        "software output: {}",
+        "software raw output: {}",
         format_vector_i64(&comparison.software_output)
     );
-    println!("rtl output: {}", format_vector_i64(&comparison.rtl_output));
+    println!(
+        "rtl raw output: {}",
+        format_vector_i64(&comparison.rtl_output)
+    );
+    println!(
+        "software dequantized: {}",
+        format_vector_f32(&dequantize_outputs(
+            layer.quant,
+            &comparison.software_output
+        ))
+    );
+    println!(
+        "rtl dequantized: {}",
+        format_vector_f32(&dequantize_outputs(layer.quant, &comparison.rtl_output))
+    );
     println!("gemm tile output:");
     print_matrix_i64(&comparison.gemm.rtl);
+    println!("notes:");
+    let mut deduped = std::collections::BTreeSet::<String>::new();
+    for note in comparison.notes {
+        if !deduped.insert(note.clone()) {
+            continue;
+        }
+        println!("- {note}");
+    }
+
+    Ok(())
+}
+
+fn run_projection_tile_check(config: &AppConfig) -> Result<()> {
+    const WEIGHT_NAME: &str = "encoder/layer_0/ffn/linear_0/weight";
+    const BIAS_NAME: &str = "encoder/layer_0/ffn/linear_0/bias";
+    const INPUT_START: usize = 0;
+    const OUTPUT_START: usize = 0;
+    const TILE_INNER: usize = 8;
+    const TILE_COLS: usize = 3;
+
+    let executor = IverilogSimExecutor::new(config.project_root.clone());
+    let quant = FixedPointConfig::Q8_8;
+    let model_bin_path = config.model_bin_path()?;
+    let model = Ct2ModelBin::open(&model_bin_path)?;
+    let weight = model.read_tensor_f32(WEIGHT_NAME)?;
+    let bias = model.read_tensor_f32(BIAS_NAME)?;
+
+    let [output_dim, input_dim]: [usize; 2] = weight
+        .info
+        .shape
+        .clone()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("expected rank-2 tensor for {WEIGHT_NAME}"))?;
+    if bias.info.shape != vec![output_dim] {
+        anyhow::bail!(
+            "bias shape mismatch for {BIAS_NAME}: expected [{}], got {:?}",
+            output_dim,
+            bias.info.shape
+        );
+    }
+    if INPUT_START + TILE_INNER > input_dim || OUTPUT_START + TILE_COLS > output_dim {
+        anyhow::bail!(
+            "requested tile [{}..{}) x [{}..{}) exceeds tensor shape {}x{}",
+            OUTPUT_START,
+            OUTPUT_START + TILE_COLS,
+            INPUT_START,
+            INPUT_START + TILE_INNER,
+            output_dim,
+            input_dim
+        );
+    }
+
+    let reference_audio = config.project_root.join("samples/jfk.flac");
+    let activation_export_path =
+        ensure_reference_activation_export(config, &reference_audio, false)?;
+    let activation_export = load_reference_activation(&activation_export_path)?;
+    if activation_export.activation.len() < INPUT_START + TILE_INNER {
+        anyhow::bail!(
+            "reference activation is too short: need at least {}, got {}",
+            INPUT_START + TILE_INNER,
+            activation_export.activation.len()
+        );
+    }
+    let input_float = activation_export.activation[INPUT_START..INPUT_START + TILE_INNER].to_vec();
+    let input_quantized = quant.quantize_slice(&input_float);
+
+    let mut weight_tile_float = Vec::with_capacity(TILE_INNER * TILE_COLS);
+    for input_offset in 0..TILE_INNER {
+        for output_offset in 0..TILE_COLS {
+            let output_index = OUTPUT_START + output_offset;
+            let input_index = INPUT_START + input_offset;
+            weight_tile_float.push(weight.values[output_index * input_dim + input_index]);
+        }
+    }
+    let weight_tile_quantized = quant.quantize_slice(&weight_tile_float);
+
+    let bias_float = bias.values[OUTPUT_START..OUTPUT_START + TILE_COLS].to_vec();
+    let bias_quantized = quant.quantize_slice(&bias_float);
+
+    let layer = LinearLayerI16 {
+        input_dim: TILE_INNER,
+        output_dim: TILE_COLS,
+        weights: MatrixI16::new(TILE_INNER, TILE_COLS, weight_tile_quantized),
+        bias: bias_quantized.clone(),
+        quant,
+    };
+
+    let comparison = simulate_linear(
+        &executor,
+        &config.fpga_sim_io_dir,
+        &model_bin_path.display().to_string(),
+        &layer,
+        &input_quantized,
+    )?;
+
+    let float_reference = compute_float_projection(
+        &input_float,
+        &weight.values,
+        input_dim,
+        &bias.values,
+        INPUT_START,
+        OUTPUT_START,
+        TILE_INNER,
+        TILE_COLS,
+    );
+    let rtl_dequantized = dequantize_outputs(quant, &comparison.rtl_output);
+    let max_abs_error = float_reference
+        .iter()
+        .zip(&rtl_dequantized)
+        .map(|(expected, actual)| (expected - actual).abs())
+        .fold(0.0_f32, f32::max);
+
+    println!("projection_tile_check: matched = {}", comparison.matched);
+    println!(
+        "model_bin: {} (spec {} v{} rev {})",
+        model_bin_path.display(),
+        model.spec_name,
+        model.version,
+        model.revision
+    );
+    println!(
+        "reference activation cache: {}",
+        activation_export_path.display()
+    );
+    println!("reference audio: {}", activation_export.audio_path);
+    println!("reference layer: {}", activation_export.layer_name);
+    println!(
+        "reference sequence index: {}",
+        activation_export.sequence_index
+    );
+    println!("projection tensor: {WEIGHT_NAME}");
+    println!("bias tensor: {BIAS_NAME}");
+    println!(
+        "tile: outputs [{OUTPUT_START}..{}), inputs [{INPUT_START}..{})",
+        OUTPUT_START + TILE_COLS,
+        INPUT_START + TILE_INNER
+    );
+    println!("quantization: {}", quant.description());
+    println!("input float: {}", format_vector_f32(&input_float));
+    println!("input quantized: {:?}", input_quantized);
+    println!("bias float: {}", format_vector_f32(&bias_float));
+    println!("bias quantized: {:?}", bias_quantized);
+    println!(
+        "software raw output: {}",
+        format_vector_i64(&comparison.software_output)
+    );
+    println!(
+        "rtl raw output: {}",
+        format_vector_i64(&comparison.rtl_output)
+    );
+    println!("float reference: {}", format_vector_f32(&float_reference));
+    println!("rtl dequantized: {}", format_vector_f32(&rtl_dequantized));
+    println!("max_abs_error: {:.6}", max_abs_error);
     println!("notes:");
     let mut deduped = std::collections::BTreeSet::<String>::new();
     for note in comparison.notes {
@@ -261,6 +434,45 @@ fn print_matrix_i64(matrix: &MatrixI64) {
             .collect::<Vec<_>>();
         println!("[{}]", values.join(", "));
     }
+}
+
+fn format_vector_f32(values: &[f32]) -> String {
+    let parts = values
+        .iter()
+        .map(|value| format!("{value:.6}"))
+        .collect::<Vec<_>>();
+    format!("[{}]", parts.join(", "))
+}
+
+fn dequantize_outputs(quant: FixedPointConfig, values: &[i64]) -> Vec<f32> {
+    values
+        .iter()
+        .map(|value| quant.dequantize_accumulator(*value))
+        .collect()
+}
+
+fn compute_float_projection(
+    input: &[f32],
+    weight_values: &[f32],
+    input_dim: usize,
+    bias_values: &[f32],
+    input_start: usize,
+    output_start: usize,
+    tile_inner: usize,
+    tile_cols: usize,
+) -> Vec<f32> {
+    (0..tile_cols)
+        .map(|output_offset| {
+            let output_index = output_start + output_offset;
+            let dot = (0..tile_inner)
+                .map(|input_offset| {
+                    let input_index = input_start + input_offset;
+                    input[input_offset] * weight_values[output_index * input_dim + input_index]
+                })
+                .sum::<f32>();
+            dot + bias_values[output_index]
+        })
+        .collect()
 }
 
 fn print_transcript(transcript: &Transcript) {

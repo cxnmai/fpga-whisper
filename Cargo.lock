@@ -406,6 +406,7 @@ dependencies = [
  "comfy-table",
  "criterion",
  "crossterm 0.28.1",
+ "half",
  "ratatui",
  "serde",
  "serde_json",

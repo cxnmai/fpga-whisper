@@ -57,7 +57,7 @@ pub fn software_linear(layer: &LinearLayerI16, input: &[i16]) -> Result<Vec<i64>
     let input_matrix = MatrixI16::new(1, layer.input_dim, input.to_vec());
     let gemm = crate::fpga::kernels::gemm::software_gemm(&input_matrix, &layer.weights)?;
     Ok((0..layer.output_dim)
-        .map(|col| gemm.get(0, col) + i64::from(layer.bias[col]))
+        .map(|col| gemm.get(0, col) + layer.quant.bias_to_accumulator(layer.bias[col]))
         .collect())
 }
 
@@ -87,7 +87,7 @@ pub fn simulate_linear(
     )?;
     let software_output = software_linear(layer, input)?;
     let rtl_output = (0..layer.output_dim)
-        .map(|col| gemm.rtl.get(0, col) + i64::from(layer.bias[col]))
+        .map(|col| gemm.rtl.get(0, col) + layer.quant.bias_to_accumulator(layer.bias[col]))
         .collect::<Vec<_>>();
     let matched = gemm.matched && software_output == rtl_output;
 

@@ -42,6 +42,7 @@ cargo run -- transcribe samples/demo.wav --backend ct2-python
 cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 cargo run -- gemm-check
 cargo run -- linear-check
+cargo run -- projection-tile-check
 cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
 cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 cargo run -- tui
@@ -111,6 +112,8 @@ cargo run -- linear-check
 `gemm-check` validates a tile-level matrix multiply contract.
 `linear-check` validates a simple linear layer on top of that tile contract, including bias addition and a placeholder fixed-point format choice.
 The GEMM path now runs through a real RTL tile module in `fpga/rtl/gemm_tile_i16x8.v`, not a host-side loop of scalar simulator calls.
+`projection-tile-check` validates one real tile cut from `encoder/layer_0/ffn/linear_0` in the baked CTranslate2 `model.bin`, quantizes it to the current `Q8.8` harness, and compares the RTL result to both the quantized software path and the original float reference.
+If the reference activation cache is missing, Rust invokes `python/export_reference_activation.py` once with the system `python3` interpreter to export `model.encoder.layers.0.fc1` input activations from `samples/jfk.flac` into `artifacts/reference/`. After that, Rust owns the cache loading, quantization, and simulator comparison path.
 
 That is the right next layer before trying to wire actual Whisper projections onto the FPGA path.
 
@@ -162,5 +165,5 @@ Criterion handles the timing loop, while the shared profiler collects CPU and RA
 ## Next steps
 
 1. Add context carry-over and timestamps to the Python baseline so it more closely matches `faster-whisper`.
-2. Map one actual Whisper linear projection onto the existing GEMM tile contract and compare it against the CPU baseline.
+2. Replace the deterministic input vector in `projection-tile-check` with a real intermediate activation slice from the host baseline.
 3. Generalize the current `i16 x i16, inner=8` simulator tile into the quantized matrix engine you want to carry onto hardware.

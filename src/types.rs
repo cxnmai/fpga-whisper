@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MODEL_HF_REPO: &str = "distil-whisper/distil-small.en";
 pub const MODEL_CT2_ALIAS: &str = "distil-small.en";
+pub const MODEL_CT2_CACHE_REPO_DIR: &str = "models--Systran--faster-distil-whisper-small.en";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 pub enum BackendKind {
