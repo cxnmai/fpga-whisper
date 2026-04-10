@@ -1,13 +1,28 @@
 [project]
-name = "fpga-whisper-python"
+name = "fpga-whisper"
 version = "0.1.0"
-description = "Python baseline worker for fpga-whisper"
+description = "Python host runtime and utilities for fpga-whisper"
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ctranslate2",
     "faster-whisper",
+    "numpy",
+    "psutil",
     "transformers",
 ]
 
+[project.scripts]
+fpga-whisper = "src.cli:main"
+fpga-whisper-ct2-worker = "src.scripts.ct2_worker:main"
+fpga-whisper-export-reference-activation = "src.scripts.export_reference_activation:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
 [tool.uv]
-package = false
+package = true

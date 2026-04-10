@@ -1,64 +1,103 @@
 # fpga-whisper
 
-Hybrid Whisper project skeleton for:
+Hybrid Whisper project scaffold for:
 
 - a baked-in `distil-whisper/distil-small.en` model target
-- a Rust CLI/TUI frontend
-- a host runtime that can start from CTranslate2 and progressively hand stages to an FPGA
+- a **Python host runtime** managed with `uv`
+- an FPGA/offload path that can progressively absorb parts of the Whisper pipeline
+- RTL simulation and validation flows that stay aligned with the eventual real-FPGA boundary
 
 ## Why this shape
 
-`faster-whisper` is the reference implementation, but the long-term hybrid runtime should be built around the same boundaries that CTranslate2 exposes:
+`faster-whisper` is the practical host-side reference, but the long-term hybrid runtime should be built around the same major boundaries that CTranslate2 exposes:
 
 - feature extraction
 - encoder
 - decoder math
 - decode policy
 
-That gives the project a clean path from:
+That gives the project a clean migration path from:
 
 1. host-only CTranslate2 baseline
 2. FPGA feature extraction
 3. FPGA encoder
 4. FPGA hybrid runtime with host-side decode control
 
+The **host runtime is now Python-first**. The FPGA assets remain the point of the project.
+
 ## Repo layout
 
-- `src/cli.rs`: top-level command surface
-- `src/tui.rs`: minimal terminal UI shell
-- `src/backend/ct2_python.rs`: host-side baseline backend
-- `src/backend/fpga_hybrid.rs`: future FPGA handoff backend
-- `python/ct2_worker.py`: direct CTranslate2 worker with graceful dependency fallback
-- `pyproject.toml`: `uv`-managed Python dependencies for the host baseline
-- `uv.lock`: locked Python dependency graph for reproducible runs
+- `src/fpga_whisper/cli.py`: top-level Python command surface
+- `src/fpga_whisper/backends/`: host runtime backends
+- `src/fpga_whisper/fpga/`: simulator, transport, quantization, and kernel helpers
+- `src/fpga_whisper/fpga_cli.py`: FPGA validation and sweep commands
+- `src/fpga_whisper/model/ct2.py`: baked CTranslate2 `model.bin` reader
+- `src/fpga_whisper/model/reference.py`: reference activation export/load helpers
+- `src/fpga_whisper/profiling.py`: backend resource profiling helpers
+- `src/fpga_whisper/scripts/ct2_worker.py`: direct CTranslate2 worker with graceful dependency fallback
+- `src/fpga_whisper/scripts/export_reference_activation.py`: activation export helper for validation flows
+- `pyproject.toml`: `uv`-managed Python project definition
+- `uv.lock`: locked dependency graph for reproducible runs
 - `docs/architecture.md`: stage split and milestones
 - `fpga/README.md`: hardware-side ownership and folder intent
 
-## Commands
+## Installation
+
+Create or sync the Python environment with `uv`:
 
 ```bash
-cargo run -- plan
-cargo run -- transcribe samples/demo.wav --backend ct2-python
-cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
-cargo run -- gemm-check
-cargo run -- linear-check
-cargo run -- projection-tile-check
-cargo run -- projection-sweep-check
-cargo run -- projection-full-check
-cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
-cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
-cargo run -- tui
+uv sync
 ```
 
-## Python baseline
-
-The `ct2-python` backend now invokes `uv run python/ct2_worker.py` and expects JSON back.
-
-Set up the baseline Python environment with:
+You can also refresh the lockfile when dependencies change:
 
 ```bash
 uv lock
-uv run python/ct2_worker.py --audio samples/silence.wav
+uv sync
+```
+
+## Commands
+
+The Python host runtime is exposed as a console script:
+
+```bash
+uv run fpga-whisper plan
+uv run fpga-whisper transcribe samples/silence.wav --backend ct2-python
+uv run fpga-whisper transcribe samples/jfk.flac --backend fpga-sim --partition frontend
+uv run fpga-whisper gemm-check
+uv run fpga-whisper linear-check
+uv run fpga-whisper projection-tile-check
+uv run fpga-whisper projection-sweep-check
+uv run fpga-whisper projection-full-check
+uv run fpga-whisper projection-full-sweep-check
+uv run fpga-whisper gelu-check
+uv run fpga-whisper gelu-sweep-check
+uv run fpga-whisper benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
+uv run fpga-whisper profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
+```
+
+You can also run the packaged helper entrypoints directly:
+
+```bash
+uv run fpga-whisper-ct2-worker --audio samples/silence.wav
+uv run fpga-whisper-export-reference-activation --audio samples/jfk.flac --positions 4 --output artifacts/reference/test.json
+```
+
+## Python host runtime
+
+The default baseline backend is `ct2-python`.
+
+It invokes the packaged worker at:
+
+- `src/fpga_whisper/scripts/ct2_worker.py`
+
+and expects JSON back.
+
+Set up and smoke-test the baseline worker with:
+
+```bash
+uv sync
+uv run fpga-whisper-ct2-worker --audio samples/silence.wav
 ```
 
 Optional environment variables:
@@ -75,58 +114,95 @@ Current limitations:
 - no timestamps
 - no VAD
 - no prompt carry-over between chunks
-- `initial_prompt` is parsed but not used yet
+- `initial_prompt` is parsed but not threaded into generation yet
 
-The Rust frontend uses `uv run` by default, so `cargo run -- transcribe ... --backend ct2-python` will execute against the `uv`-managed Python environment.
-The model is baked into the program, so there is no CLI model switch anymore.
-The language is baked in as English, so there is no CLI language switch anymore.
+The model is baked into the program, so there is no CLI model switch.
+The language is baked in as English, so there is no CLI language switch.
 
-## FPGA Simulation Path
+## Backends
 
-The first hardware-facing scaffold keeps Python out of the RTL boundary:
+### `ct2-python`
 
-- Rust host orchestrates the pipeline
+Host-side CTranslate2 baseline. Use this as the correctness oracle.
+
+### `fpga-sim`
+
+Host-side integration path for simulated RTL via file-based vector exchange.
+
+This path keeps the FPGA workflow intact:
+
+- Python host orchestrates the pipeline
 - `fpga-sim` writes each request into its own scratch directory under `fpga/tmp/`
-- Rust generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
-- Rust parses the response and continues the flow
+- Python generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
+- Python parses the response and continues the flow
 
 This keeps the eventual real-FPGA interface aligned with the simulator interface.
 
-Try it with:
+### `fpga-hybrid`
+
+Hybrid path scaffold. Host keeps control flow while the FPGA absorbs dense math stages.
+
+## FPGA simulation path
+
+Try the first hardware-facing scaffold with:
 
 ```bash
-cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
+uv run fpga-whisper transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 ```
 
 Today that path exercises a real RTL smoke primitive:
 
 - signed int16 x int16 8-lane dot product
-- request vectors written by Rust
+- request vectors written by the host runtime
 - result checked against software on the host
 
 Above that primitive, there is now a kernel-layer validation path:
 
 ```bash
-cargo run -- gemm-check
-cargo run -- linear-check
+uv run fpga-whisper gemm-check
+uv run fpga-whisper linear-check
 ```
 
 `gemm-check` validates a tile-level matrix multiply contract.
-`linear-check` validates a simple linear layer on top of that tile contract, including bias addition and a placeholder fixed-point format choice.
-The GEMM path now runs through a real RTL tile module in `fpga/rtl/gemm_tile_i16x8.v`, not a host-side loop of scalar simulator calls.
-`projection-tile-check` validates one real tile cut from `encoder/layer_0/ffn/linear_0` in the baked CTranslate2 `model.bin`, quantizes it to the current `Q8.8` harness, and compares the RTL result to both the quantized software path and the original float reference.
-If the reference activation cache is missing, Rust invokes `python/export_reference_activation.py` once with the system `python3` interpreter to export `model.encoder.layers.0.fc1` input activations from `samples/jfk.flac` into `artifacts/reference/`. After that, Rust owns the cache loading, quantization, and simulator comparison path.
-`projection-sweep-check` runs the same real projection path across multiple cached sequence positions, multiple input-channel windows, and multiple output-column windows, then prints a summary table of max absolute error per case.
-`projection-full-check` accumulates 96 adjacent `inner=8` RTL GEMM tiles to cover a real full-width `1x768 -> 1x3` projection slice with bias already seeded into the FPGA-side accumulator path.
 
-That is the right next layer before trying to wire actual Whisper projections onto the FPGA path.
+`linear-check` validates a simple linear layer on top of that tile contract, including bias addition and the current placeholder fixed-point format choice.
+
+The GEMM path runs through a real RTL tile module in `fpga/rtl/gemm_tile_i16x8.v`, not a host-side loop of scalar simulator calls.
+
+## Projection and activation validation
+
+The project also includes model-aware validation commands:
+
+```bash
+uv run fpga-whisper projection-tile-check
+uv run fpga-whisper projection-sweep-check
+uv run fpga-whisper projection-full-check
+uv run fpga-whisper projection-full-sweep-check
+uv run fpga-whisper gelu-check
+uv run fpga-whisper gelu-sweep-check
+```
+
+These commands validate real slices from the baked CTranslate2 `model.bin`:
+
+- `projection-tile-check` validates one real tile cut from `encoder/layer_0/ffn/linear_0`
+- `projection-sweep-check` runs multiple cached positions and multiple input/output windows
+- `projection-full-check` accumulates adjacent `inner=8` RTL GEMM tiles into a wider projection slice
+- `projection-full-sweep-check` widens that accumulated path and sweeps multiple output windows
+- `gelu-check` requantizes a real accumulated projection window and runs it through the RTL GELU PWL block
+- `gelu-sweep-check` runs that activation block across the wider accumulated projection sweep
+
+If the reference activation cache is missing, the host runtime invokes the packaged exporter and writes JSON under:
+
+- `artifacts/reference/`
+
+After that, Python owns the cache loading, quantization, simulator invocation, and comparison path.
 
 ## Benchmarking
 
-Use the built-in benchmark command to measure baseline transcription latency before you start moving stages onto the FPGA:
+Use the built-in benchmark command to measure baseline transcription latency before moving stages onto the FPGA:
 
 ```bash
-cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
+uv run fpga-whisper benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
 ```
 
 This reports:
@@ -135,39 +211,41 @@ This reports:
 - average/min/max transcription time
 - average real-time factor, computed as `elapsed_seconds / audio_duration_seconds`
 
-Keep this command stable and run it against the same sample set when the FPGA backend comes online.
+Keep this command stable and run it against the same sample set as FPGA ownership expands.
 
-## System Profiling
+## System profiling
 
 Use the profile command when you want host resource usage instead of just timing:
 
 ```bash
-cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
+uv run fpga-whisper profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 ```
 
 This prints:
 
 - a summary table with elapsed time, real-time factor, average and peak CPU usage, and average and peak RAM usage
-- a per-sample table showing CPU and RAM usage across the full transcription run
+- a per-sample table showing CPU and RAM usage across the transcription run
 
-The CPU and RAM numbers are sampled from the backend process tree, which is the relevant baseline to compare against once the FPGA backend is implemented.
+The CPU and RAM numbers are sampled from the backend process tree, which is the relevant baseline to compare against once the FPGA backend becomes real hardware.
 
-## Criterion
+## FPGA assets stay central
 
-There is also a Criterion benchmark harness at:
+This project is **not** about removing the FPGA path. The host runtime moved to Python, but the hardware-side assets remain central:
 
-- `benches/transcriber_system_profile.rs`
+- `fpga/rtl/*`
+- `fpga/tb/*`
+- `fpga/tmp/*`
+- the simulator contract
+- the model partitioning concepts
+- the quantization and validation flows used to decide what moves onto the FPGA
 
-Run it with:
-
-```bash
-cargo bench --bench transcriber_system_profile
-```
-
-Criterion handles the timing loop, while the shared profiler collects CPU and RAM samples for the same transcription path.
+The goal remains the same: wire in an FPGA to run meaningful parts of Whisper on it.
 
 ## Next steps
 
-1. Add context carry-over and timestamps to the Python baseline so it more closely matches `faster-whisper`.
-2. Expand the accumulator-backed projection path from one `1x768 -> 1x3` slice into wider output tiles so more of a real Whisper layer sits on the FPGA boundary at once.
-3. Generalize the current `i16 x i16, inner=8` simulator tile into the quantized matrix engine you want to carry onto hardware.
+1. Thread prompt/context carry-over and timestamps into the Python CTranslate2 baseline.
+2. Replace more host-side Whisper math with explicit FPGA-owned stage boundaries.
+3. Tighten the quantization contract for wider accumulated output tiles.
+4. Tighten the GELU approximation against float reference behavior.
+5. Build the second FFN linear on top of the accumulated projection + GELU path.
+6. Replace the simulation-only transport with a real FPGA transport while keeping the host/runtime contracts stable.
