@@ -39,17 +39,15 @@ def describe_backend() -> BackendDescriptor:
 class FpgaSimBackend:
     project_root: Path
     io_dir: Path
+    executor: IverilogSimExecutor
 
     @classmethod
     def from_config(cls, config: AppConfig) -> "FpgaSimBackend":
         return cls(
             project_root=config.project_root,
             io_dir=config.resolved_fpga_sim_io_dir,
+            executor=IverilogSimExecutor(project_root=config.project_root),
         )
-
-    @property
-    def executor(self) -> IverilogSimExecutor:
-        return IverilogSimExecutor(project_root=self.project_root)
 
     def descriptor(self) -> BackendDescriptor:
         return describe_backend()

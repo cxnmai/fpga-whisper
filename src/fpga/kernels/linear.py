@@ -96,7 +96,7 @@ def simulate_linear(
         rhs=layer.weights,
         accumulator=bias_accumulator,
     )
-    software_output = software_linear(layer, input_values)
+    software_output = list(gemm.software.values)
     rtl_output = list(gemm.rtl.values)
     matched = gemm.matched and software_output == rtl_output
 

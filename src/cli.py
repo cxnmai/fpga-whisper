@@ -4,6 +4,7 @@ import argparse
 import statistics
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -111,22 +112,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_benchmark(config, args)
     if command == "profile":
         return _run_profile(config, args)
-    if command == "gemm-check":
-        return _run_fpga_command("run_gemm_check", config)
-    if command == "linear-check":
-        return _run_fpga_command("run_linear_check", config)
-    if command == "projection-tile-check":
-        return _run_fpga_command("run_projection_tile_check", config)
-    if command == "projection-sweep-check":
-        return _run_fpga_command("run_projection_sweep_check", config)
-    if command == "projection-full-check":
-        return _run_fpga_command("run_projection_full_check", config)
-    if command == "projection-full-sweep-check":
-        return _run_fpga_command("run_projection_full_sweep_check", config)
-    if command == "gelu-check":
-        return _run_fpga_command("run_gelu_check", config)
-    if command == "gelu-sweep-check":
-        return _run_fpga_command("run_gelu_sweep_check", config)
+
+    fpga_handlers = {
+        "gemm-check": "run_gemm_check",
+        "linear-check": "run_linear_check",
+        "projection-tile-check": "run_projection_tile_check",
+        "projection-sweep-check": "run_projection_sweep_check",
+        "projection-full-check": "run_projection_full_check",
+        "projection-full-sweep-check": "run_projection_full_sweep_check",
+        "gelu-check": "run_gelu_check",
+        "gelu-sweep-check": "run_gelu_sweep_check",
+    }
+    handler_name = fpga_handlers.get(command)
+    if handler_name is not None:
+        return _run_fpga_command(handler_name, config)
 
     parser.error(f"unsupported command: {command}")
     return 2
@@ -144,12 +143,7 @@ def _run_plan(args: argparse.Namespace) -> int:
 
 
 def _run_transcribe(config, args: argparse.Namespace) -> int:
-    request = TranscriptionRequest(
-        audio_path=args.audio,
-        backend=BackendKind(args.backend),
-        partition=PartitionPreset(args.partition),
-        initial_prompt=args.initial_prompt,
-    )
+    request = _build_request(args)
     backend = build_backend(request.backend, config)
     transcript = backend.transcribe(request)
     print_transcript(transcript)
@@ -157,12 +151,7 @@ def _run_transcribe(config, args: argparse.Namespace) -> int:
 
 
 def _run_benchmark(config, args: argparse.Namespace) -> int:
-    request = TranscriptionRequest(
-        audio_path=args.audio,
-        backend=BackendKind(args.backend),
-        partition=PartitionPreset(args.partition),
-        initial_prompt=args.initial_prompt,
-    )
+    request = _build_request(args)
     backend = build_backend(request.backend, config)
     report = benchmark_backend(
         backend=backend,
@@ -175,12 +164,7 @@ def _run_benchmark(config, args: argparse.Namespace) -> int:
 
 
 def _run_profile(config, args: argparse.Namespace) -> int:
-    request = TranscriptionRequest(
-        audio_path=args.audio,
-        backend=BackendKind(args.backend),
-        partition=PartitionPreset(args.partition),
-        initial_prompt=args.initial_prompt,
-    )
+    request = _build_request(args)
     report = profile_request(
         config=config,
         request=request,
@@ -225,6 +209,15 @@ def print_transcript(transcript: Transcript) -> None:
         )
 
 
+def _build_request(args: argparse.Namespace) -> TranscriptionRequest:
+    return TranscriptionRequest(
+        audio_path=args.audio,
+        backend=BackendKind(args.backend),
+        partition=PartitionPreset(args.partition),
+        initial_prompt=args.initial_prompt,
+    )
+
+
 def benchmark_backend(
     backend,
     request: TranscriptionRequest,
@@ -265,17 +258,11 @@ def benchmark_backend(
     )
 
 
+@dataclass(slots=True)
 class BenchmarkReport:
-    def __init__(
-        self,
-        *,
-        warmup_runs: int,
-        measured_runs: list[BenchmarkRun],
-        transcript: Transcript,
-    ) -> None:
-        self.warmup_runs = warmup_runs
-        self.measured_runs = measured_runs
-        self.transcript = transcript
+    warmup_runs: int
+    measured_runs: list[BenchmarkRun]
+    transcript: Transcript
 
 
 def print_benchmark(report: BenchmarkReport) -> None:

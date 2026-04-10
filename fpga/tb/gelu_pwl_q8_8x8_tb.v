@@ -1,13 +1,21 @@
 `timescale 1ns/1ps
-`include "gelu_vectors.vh"
 
 module gelu_pwl_q8_8x8_tb;
+    reg [15:0] input_mem [0:7];
+    wire signed [8 * 16 - 1:0] input_block;
     wire signed [8 * 16 - 1:0] output_block;
     integer result_file;
     integer idx;
 
+    genvar lane;
+    generate
+        for (lane = 0; lane < 8; lane = lane + 1) begin : pack_input
+            assign input_block[(lane * 16) +: 16] = input_mem[lane];
+        end
+    endgenerate
+
     gelu_pwl_q8_8x8 dut (
-        .input_block(INPUT_BLOCK),
+        .input_block(input_block),
         .output_block(output_block)
     );
 
@@ -19,6 +27,7 @@ module gelu_pwl_q8_8x8_tb;
     endfunction
 
     initial begin
+        $readmemh("gelu_input.mem", input_mem);
         result_file = $fopen("gelu_result.txt", "w");
         if (result_file == 0) begin
             $display("failed to open gelu_result.txt");

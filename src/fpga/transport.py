@@ -121,6 +121,28 @@ class GemmTileI64Response:
 
 
 @dataclass(slots=True)
+class GemmTileBatchI16Request:
+    shape: GemmTileShape
+    requests: list[GemmTileI16Request]
+
+    def validate(self) -> None:
+        for request in self.requests:
+            request.validate()
+            if request.shape != self.shape:
+                raise ValueError(
+                    "batch request shape mismatch: "
+                    f"expected {self.shape.to_dict()}, got {request.shape.to_dict()}"
+                )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "shape": self.shape.to_dict(),
+            "case_count": len(self.requests),
+            "requests": [request.to_dict() for request in self.requests],
+        }
+
+
+@dataclass(slots=True)
 class GeluBlockRequest:
     audio_path: str
     input_block: list[int]
@@ -176,6 +198,12 @@ class FpgaExecutor(Protocol):
         request: GemmTileI16Request,
         output_dir: Path,
     ) -> GemmTileI64Response: ...
+
+    def execute_gemm_tile_batch(
+        self,
+        request: GemmTileBatchI16Request,
+        output_dir: Path,
+    ) -> list[GemmTileI64Response]: ...
 
     def execute_gelu_block(
         self,

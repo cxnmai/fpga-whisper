@@ -10,6 +10,7 @@ from .fpga.kernels.gemm import (
     MatrixI64,
     simulate_gemm_tile,
     simulate_gemm_tile_with_accumulator,
+    software_gemm_with_accumulator,
 )
 from .fpga.kernels.linear import (
     LinearComparison,
@@ -19,6 +20,7 @@ from .fpga.kernels.linear import (
 )
 from .fpga.quant import Q8_8, FixedPointConfig
 from .fpga.sim import IverilogSimExecutor
+from .fpga.transport import GemmTileBatchI16Request, GemmTileI16Request, GemmTileShape
 from .model.ct2 import Ct2ModelBin
 from .model.reference import (
     ensure_reference_activation_export,
@@ -735,8 +737,8 @@ def run_projection_full_case(
         cols=software_accumulator.cols,
         values=list(software_accumulator.values),
     )
+    batch_requests: list[GemmTileI16Request] = []
     max_tile_error = 0.0
-    tile_count = 0
 
     for input_start in range(0, input_dim, tile_inner):
         input_float = activation[input_start : input_start + tile_inner]
@@ -751,29 +753,46 @@ def run_projection_full_case(
                     weight_values[output_index * input_dim + input_index]
                 )
         weight_tile_quantized = quant.quantize_slice(weight_tile_float)
-
-        comparison = simulate_gemm_tile_with_accumulator(
-            executor=executor,
-            output_dir=config.resolved_fpga_sim_io_dir,
-            audio_path=str(model_bin_path),
-            lhs=MatrixI16(rows=1, cols=tile_inner, values=input_quantized),
-            rhs=MatrixI16(
-                rows=tile_inner,
-                cols=tile_cols,
-                values=weight_tile_quantized,
-            ),
-            accumulator=software_accumulator,
+        lhs = MatrixI16(rows=1, cols=tile_inner, values=input_quantized)
+        rhs = MatrixI16(rows=tile_inner, cols=tile_cols, values=weight_tile_quantized)
+        software_accumulator = software_gemm_with_accumulator(
+            lhs,
+            rhs,
+            software_accumulator,
+        )
+        batch_requests.append(
+            GemmTileI16Request(
+                audio_path=str(model_bin_path),
+                shape=GemmTileShape(rows=1, cols=tile_cols, inner=tile_inner),
+                lhs_tile=list(lhs.values),
+                rhs_tile=list(rhs.values),
+                accumulator_input=list(rtl_accumulator.values),
+                expected_output=list(software_accumulator.values),
+            )
+        )
+        rtl_accumulator = MatrixI64(
+            rows=rtl_accumulator.rows,
+            cols=rtl_accumulator.cols,
+            values=list(software_accumulator.values),
         )
 
-        tile_rtl_dequantized = dequantize_outputs(quant, comparison.rtl.values)
-        tile_software_dequantized = dequantize_outputs(
-            quant, comparison.software.values
-        )
+    batch_responses = executor.execute_gemm_tile_batch(
+        GemmTileBatchI16Request(
+            shape=GemmTileShape(rows=1, cols=tile_cols, inner=tile_inner),
+            requests=batch_requests,
+        ),
+        config.resolved_fpga_sim_io_dir,
+    )
+    for response in batch_responses:
+        tile_rtl_dequantized = dequantize_outputs(quant, response.rtl_output)
+        tile_software_dequantized = dequantize_outputs(quant, response.expected_output)
         tile_error = max_abs_diff(tile_software_dequantized, tile_rtl_dequantized)
         max_tile_error = max(max_tile_error, tile_error)
-        software_accumulator = comparison.software
-        rtl_accumulator = comparison.rtl
-        tile_count += 1
+    rtl_accumulator = MatrixI64(
+        rows=1,
+        cols=tile_cols,
+        values=list(batch_responses[-1].rtl_output),
+    )
 
     float_reference = compute_float_projection(
         input_values=activation,
@@ -787,14 +806,16 @@ def run_projection_full_case(
     )
     rtl_dequantized = dequantize_outputs(quant, rtl_accumulator.values)
     max_abs_error = max_abs_diff(float_reference, rtl_dequantized)
-    matched = software_accumulator.values == rtl_accumulator.values
+    matched = all(response.matched for response in batch_responses) and (
+        software_accumulator.values == rtl_accumulator.values
+    )
 
     return ProjectionFullCaseResult(
         sequence_index=sequence_index,
         output_start=output_start,
         tile_inner=tile_inner,
         tile_cols=tile_cols,
-        tile_count=tile_count,
+        tile_count=len(batch_requests),
         bias_float=list(bias_float),
         bias_quantized=list(bias_quantized),
         software_output=list(software_accumulator.values),

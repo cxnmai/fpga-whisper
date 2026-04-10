@@ -1,31 +1,50 @@
 `timescale 1ns/1ps
-`include "dot_product_vectors.vh"
 
 module dot_product_i16x8_tb;
+    reg [15:0] vec_a_mem [0:7];
+    reg [15:0] vec_b_mem [0:7];
+    wire signed [15:0] vec_a0 = $signed(vec_a_mem[0]);
+    wire signed [15:0] vec_a1 = $signed(vec_a_mem[1]);
+    wire signed [15:0] vec_a2 = $signed(vec_a_mem[2]);
+    wire signed [15:0] vec_a3 = $signed(vec_a_mem[3]);
+    wire signed [15:0] vec_a4 = $signed(vec_a_mem[4]);
+    wire signed [15:0] vec_a5 = $signed(vec_a_mem[5]);
+    wire signed [15:0] vec_a6 = $signed(vec_a_mem[6]);
+    wire signed [15:0] vec_a7 = $signed(vec_a_mem[7]);
+    wire signed [15:0] vec_b0 = $signed(vec_b_mem[0]);
+    wire signed [15:0] vec_b1 = $signed(vec_b_mem[1]);
+    wire signed [15:0] vec_b2 = $signed(vec_b_mem[2]);
+    wire signed [15:0] vec_b3 = $signed(vec_b_mem[3]);
+    wire signed [15:0] vec_b4 = $signed(vec_b_mem[4]);
+    wire signed [15:0] vec_b5 = $signed(vec_b_mem[5]);
+    wire signed [15:0] vec_b6 = $signed(vec_b_mem[6]);
+    wire signed [15:0] vec_b7 = $signed(vec_b_mem[7]);
     wire signed [63:0] result;
     integer result_file;
 
     dot_product_i16x8 dut (
-        .a0(VEC_A0),
-        .a1(VEC_A1),
-        .a2(VEC_A2),
-        .a3(VEC_A3),
-        .a4(VEC_A4),
-        .a5(VEC_A5),
-        .a6(VEC_A6),
-        .a7(VEC_A7),
-        .b0(VEC_B0),
-        .b1(VEC_B1),
-        .b2(VEC_B2),
-        .b3(VEC_B3),
-        .b4(VEC_B4),
-        .b5(VEC_B5),
-        .b6(VEC_B6),
-        .b7(VEC_B7),
+        .a0(vec_a0),
+        .a1(vec_a1),
+        .a2(vec_a2),
+        .a3(vec_a3),
+        .a4(vec_a4),
+        .a5(vec_a5),
+        .a6(vec_a6),
+        .a7(vec_a7),
+        .b0(vec_b0),
+        .b1(vec_b1),
+        .b2(vec_b2),
+        .b3(vec_b3),
+        .b4(vec_b4),
+        .b5(vec_b5),
+        .b6(vec_b6),
+        .b7(vec_b7),
         .result(result)
     );
 
     initial begin
+        $readmemh("dot_product_a.mem", vec_a_mem);
+        $readmemh("dot_product_b.mem", vec_b_mem);
         result_file = $fopen("dot_product_result.txt", "w");
         if (result_file == 0) begin
             $display("failed to open dot_product_result.txt");
