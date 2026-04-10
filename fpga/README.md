@@ -32,3 +32,5 @@ Current simulator scaffold:
 - simulator invocation: direct Rust -> `iverilog`/`vvp`
 - first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
 - first real testbench: `fpga/tb/dot_product_i16x8_tb.v`
+- first reusable tile primitive: `fpga/rtl/gemm_tile_i16x8.v`
+- first tile testbench: `fpga/tb/gemm_tile_i16x8_tb.v`

@@ -1,7 +1,6 @@
 use anyhow::{Result, bail};
 
-use crate::fpga::kernels::dot::{simulate_dot_product, software_dot_product};
-use crate::fpga::transport::FpgaExecutor;
+use crate::fpga::transport::{FpgaExecutor, GemmTileI16Request, GemmTileShape};
 
 #[derive(Debug, Clone)]
 pub struct MatrixI16 {
@@ -19,10 +18,6 @@ impl MatrixI16 {
         let start = index * self.cols;
         let end = start + self.cols;
         &self.values[start..end]
-    }
-
-    pub fn get(&self, row: usize, col: usize) -> i64 {
-        i64::from(self.values[row * self.cols + col])
     }
 }
 
@@ -65,17 +60,20 @@ pub fn software_gemm(lhs: &MatrixI16, rhs: &MatrixI16) -> Result<MatrixI64> {
     let mut values = Vec::with_capacity(lhs.rows * rhs.cols);
     for row in 0..lhs.rows {
         for col in 0..rhs.cols {
-            let rhs_column = (0..rhs.rows)
-                .map(|rhs_row| rhs.values[rhs_row * rhs.cols + col])
-                .collect::<Vec<_>>();
-            values.push(software_dot_product(lhs.row(row), &rhs_column));
+            let mut sum = 0_i64;
+            for inner in 0..lhs.cols {
+                let lhs_value = i64::from(lhs.values[row * lhs.cols + inner]);
+                let rhs_value = i64::from(rhs.values[inner * rhs.cols + col]);
+                sum += lhs_value * rhs_value;
+            }
+            values.push(sum);
         }
     }
 
     Ok(MatrixI64::new(lhs.rows, rhs.cols, values))
 }
 
-pub fn simulate_gemm_via_dot_products(
+pub fn simulate_gemm_tile(
     executor: &dyn FpgaExecutor,
     output_dir: &std::path::Path,
     audio_path: &str,
@@ -91,32 +89,27 @@ pub fn simulate_gemm_via_dot_products(
             rhs.cols
         );
     }
-    if lhs.cols != 8 {
-        bail!("current dot-product RTL path expects inner dimension of exactly 8");
-    }
 
     let software = software_gemm(lhs, rhs)?;
-    let mut rtl_values = Vec::with_capacity(lhs.rows * rhs.cols);
-    let mut notes = Vec::new();
-    let mut matched = true;
-
-    for row in 0..lhs.rows {
-        for col in 0..rhs.cols {
-            let rhs_column = (0..rhs.rows)
-                .map(|rhs_row| rhs.values[rhs_row * rhs.cols + col])
-                .collect::<Vec<_>>();
-            let result =
-                simulate_dot_product(executor, output_dir, audio_path, lhs.row(row), &rhs_column)?;
-            matched &= result.matched;
-            rtl_values.push(result.rtl_result);
-            notes.extend(result.notes);
-        }
-    }
+    let response = executor.execute_gemm_tile(
+        &GemmTileI16Request {
+            audio_path: audio_path.to_owned(),
+            shape: GemmTileShape {
+                rows: lhs.rows,
+                cols: rhs.cols,
+                inner: lhs.cols,
+            },
+            lhs_tile: lhs.values.clone(),
+            rhs_tile: rhs.values.clone(),
+            expected_output: software.values.clone(),
+        },
+        output_dir,
+    )?;
 
     Ok(GemmComparison {
         software,
-        rtl: MatrixI64::new(lhs.rows, rhs.cols, rtl_values),
-        matched,
-        notes,
+        rtl: MatrixI64::new(lhs.rows, rhs.cols, response.rtl_output),
+        matched: response.matched,
+        notes: response.notes,
     })
 }

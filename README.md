@@ -41,6 +41,7 @@ cargo run -- plan
 cargo run -- transcribe samples/demo.wav --backend ct2-python
 cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 cargo run -- gemm-check
+cargo run -- linear-check
 cargo run -- benchmark samples/jfk.flac --backend ct2-python --iterations 5 --warmup 1
 cargo run -- profile samples/jfk.flac --backend ct2-python --sample-interval-ms 250
 cargo run -- tui
@@ -104,9 +105,14 @@ Above that primitive, there is now a kernel-layer validation path:
 
 ```bash
 cargo run -- gemm-check
+cargo run -- linear-check
 ```
 
-This composes repeated RTL dot products into a small GEMM check, which is the right direction for wiring model layers later.
+`gemm-check` validates a tile-level matrix multiply contract.
+`linear-check` validates a simple linear layer on top of that tile contract, including bias addition and a placeholder fixed-point format choice.
+The GEMM path now runs through a real RTL tile module in `fpga/rtl/gemm_tile_i16x8.v`, not a host-side loop of scalar simulator calls.
+
+That is the right next layer before trying to wire actual Whisper projections onto the FPGA path.
 
 ## Benchmarking
 
@@ -156,5 +162,5 @@ Criterion handles the timing loop, while the shared profiler collects CPU and RA
 ## Next steps
 
 1. Add context carry-over and timestamps to the Python baseline so it more closely matches `faster-whisper`.
-2. Define a stable host/FPGA packet format for feature chunks, encoder output, and decoder work units.
-3. Build a generic `int8` matrix engine on the FPGA before attempting per-layer specialization.
+2. Map one actual Whisper linear projection onto the existing GEMM tile contract and compare it against the CPU baseline.
+3. Generalize the current `i16 x i16, inner=8` simulator tile into the quantized matrix engine you want to carry onto hardware.

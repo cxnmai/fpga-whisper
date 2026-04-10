@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::fpga::transport::{FpgaExecutor, FpgaSimRequest};
+use crate::fpga::transport::{DotProductRequest, FpgaExecutor};
 
 #[derive(Debug, Clone)]
 pub struct DotProductResult {
@@ -25,9 +25,8 @@ pub fn simulate_dot_product(
     rhs: &[i16],
 ) -> Result<DotProductResult> {
     let expected_result = software_dot_product(lhs, rhs);
-    let response = executor.execute_stage(
-        &FpgaSimRequest {
-            operation: "dot-product".to_owned(),
+    let response = executor.execute_dot_product(
+        &DotProductRequest {
             audio_path: audio_path.to_owned(),
             vector_a: lhs.to_vec(),
             vector_b: rhs.to_vec(),

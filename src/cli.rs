@@ -4,7 +4,9 @@ use std::time::Instant;
 
 use crate::backend::{build_backend, describe_backend};
 use crate::config::AppConfig;
-use crate::fpga::kernels::gemm::{MatrixI16, simulate_gemm_via_dot_products};
+use crate::fpga::kernels::gemm::{MatrixI16, MatrixI64, simulate_gemm_tile};
+use crate::fpga::kernels::linear::{LinearLayerI16, format_vector_i64, simulate_linear};
+use crate::fpga::quant::FixedPointConfig;
 use crate::fpga::sim::IverilogSimExecutor;
 use crate::profiling::{profile_request, render_samples_table, render_summary_table};
 use crate::tui::run_tui;
@@ -60,6 +62,7 @@ enum Commands {
         initial_prompt: Option<String>,
     },
     GemmCheck,
+    LinearCheck,
     Tui,
 }
 
@@ -138,6 +141,9 @@ pub fn run() -> Result<()> {
         Commands::GemmCheck => {
             run_gemm_check(&config)?;
         }
+        Commands::LinearCheck => {
+            run_linear_check(&config)?;
+        }
         Commands::Tui => run_tui(config)?,
     }
 
@@ -169,7 +175,7 @@ fn run_gemm_check(config: &AppConfig) -> Result<()> {
         ],
     );
 
-    let comparison = simulate_gemm_via_dot_products(
+    let comparison = simulate_gemm_tile(
         &executor,
         &config.fpga_sim_io_dir,
         "samples/jfk.flac",
@@ -183,7 +189,7 @@ fn run_gemm_check(config: &AppConfig) -> Result<()> {
     println!("rtl result:");
     print_matrix_i64(&comparison.rtl);
     println!("notes:");
-    let mut deduped = std::collections::BTreeSet::new();
+    let mut deduped = std::collections::BTreeSet::<String>::new();
     for note in comparison.notes {
         if !deduped.insert(note.clone()) {
             continue;
@@ -194,7 +200,61 @@ fn run_gemm_check(config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
-fn print_matrix_i64(matrix: &crate::fpga::kernels::gemm::MatrixI64) {
+fn run_linear_check(config: &AppConfig) -> Result<()> {
+    let executor = IverilogSimExecutor::new(config.project_root.clone());
+    let layer = LinearLayerI16 {
+        input_dim: 8,
+        output_dim: 3,
+        weights: MatrixI16::new(
+            8,
+            3,
+            vec![
+                6, 1, -2, //
+                8, -3, 4, //
+                -4, 2, 5, //
+                1, 9, -1, //
+                9, -1, 3, //
+                -2, 5, 7, //
+                3, 4, -6, //
+                5, -6, 2,
+            ],
+        ),
+        bias: vec![4, -3, 9],
+        quant: FixedPointConfig::Q8_8,
+    };
+    let input = vec![3, -2, 7, 4, -1, 5, 2, -3];
+
+    let comparison = simulate_linear(
+        &executor,
+        &config.fpga_sim_io_dir,
+        "samples/jfk.flac",
+        &layer,
+        &input,
+    )?;
+
+    println!("linear_check: matched = {}", comparison.matched);
+    println!("linear_check: quantization = {}", layer.quant.description());
+    println!("input: {:?}", input);
+    println!(
+        "software output: {}",
+        format_vector_i64(&comparison.software_output)
+    );
+    println!("rtl output: {}", format_vector_i64(&comparison.rtl_output));
+    println!("gemm tile output:");
+    print_matrix_i64(&comparison.gemm.rtl);
+    println!("notes:");
+    let mut deduped = std::collections::BTreeSet::<String>::new();
+    for note in comparison.notes {
+        if !deduped.insert(note.clone()) {
+            continue;
+        }
+        println!("- {note}");
+    }
+
+    Ok(())
+}
+
+fn print_matrix_i64(matrix: &MatrixI64) {
     for row in 0..matrix.rows {
         let values = (0..matrix.cols)
             .map(|col| matrix.get(row, col).to_string())
