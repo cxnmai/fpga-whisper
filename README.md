@@ -82,7 +82,7 @@ The first hardware-facing scaffold keeps Python out of the RTL boundary:
 
 - Rust host orchestrates the pipeline
 - `fpga-sim` writes a request JSON into `fpga/tmp/`
-- a simulator bridge script reads it and writes a response JSON back
+- a simulator bridge script generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
 - Rust parses the response and continues the flow
 
 This keeps the eventual real-FPGA interface aligned with the simulator interface.
@@ -92,6 +92,12 @@ Try it with:
 ```bash
 cargo run -- transcribe samples/jfk.flac --backend fpga-sim --partition frontend
 ```
+
+Today that path exercises a real RTL smoke primitive:
+
+- signed int16 x int16 8-lane dot product
+- request vectors written by Rust
+- result checked against software on the host
 
 ## Benchmarking
 

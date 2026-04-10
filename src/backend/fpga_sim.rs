@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use crate::backend::TranscriptionBackend;
 use crate::fpga::sim::IverilogSimExecutor;
-use crate::fpga::transport::{FpgaExecutor, FpgaFeatureRequest};
+use crate::fpga::transport::{FpgaExecutor, FpgaSimRequest};
 use crate::types::{
     BackendDescriptor, BackendKind, MODEL_HF_REPO, Transcript, TranscriptSegment,
     TranscriptionRequest,
@@ -38,10 +38,21 @@ impl TranscriptionBackend for FpgaSimBackend {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let response = self.executor.execute_feature_stage(
-            &FpgaFeatureRequest {
+        let vector_a = vec![3, -2, 7, 4, -1, 5, 2, -3];
+        let vector_b = vec![6, 8, -4, 1, 9, -2, 3, 5];
+        let expected_result = vector_a
+            .iter()
+            .zip(&vector_b)
+            .map(|(lhs, rhs)| i64::from(*lhs) * i64::from(*rhs))
+            .sum::<i64>();
+
+        let response = self.executor.execute_stage(
+            &FpgaSimRequest {
+                operation: "dot-product".to_owned(),
                 audio_path: request.audio_path.display().to_string(),
-                requested_stage: "feature-extraction".to_owned(),
+                vector_a: vector_a.clone(),
+                vector_b: vector_b.clone(),
+                expected_result,
             },
             &self.io_dir,
         )?;
@@ -54,10 +65,12 @@ impl TranscriptionBackend for FpgaSimBackend {
                 "Rust host is talking directly to the simulated RTL boundary.".to_owned(),
                 format!("Executor: {}", self.executor.name()),
                 format!("Planned FPGA stages: {fpga_stages}"),
-                format!(
-                    "Simulator produced {} with {} frames x {} bins.",
-                    response.produced_stage, response.frame_count, response.bin_count
-                ),
+                "First real RTL primitive: signed 8-lane int16 dot product.".to_owned(),
+                format!("Input vector A: {vector_a:?}"),
+                format!("Input vector B: {vector_b:?}"),
+                format!("Expected software result: {}", response.expected_result),
+                format!("RTL result: {}", response.rtl_result),
+                format!("Matched: {}", response.matched),
             ]
             .into_iter()
             .chain(response.notes)
@@ -65,7 +78,10 @@ impl TranscriptionBackend for FpgaSimBackend {
             segments: vec![TranscriptSegment {
                 start_seconds: 0.0,
                 end_seconds: 0.0,
-                text: "[skeleton] FPGA simulator returned staged feature metadata only.".to_owned(),
+                text: format!(
+                    "[fpga-sim] dot-product smoke test result = {}",
+                    response.rtl_result
+                ),
             }],
         })
     }

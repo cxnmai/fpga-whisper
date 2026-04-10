@@ -4,25 +4,25 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FpgaFeatureRequest {
+pub struct FpgaSimRequest {
+    pub operation: String,
     pub audio_path: String,
-    pub requested_stage: String,
+    pub vector_a: Vec<i16>,
+    pub vector_b: Vec<i16>,
+    pub expected_result: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FpgaFeatureResponse {
-    pub produced_stage: String,
-    pub sample_rate_hz: u32,
-    pub frame_count: usize,
-    pub bin_count: usize,
+pub struct FpgaSimResponse {
+    pub operation: String,
+    pub rtl_result: i64,
+    pub expected_result: i64,
+    pub matched: bool,
     pub notes: Vec<String>,
 }
 
 pub trait FpgaExecutor {
     fn name(&self) -> &'static str;
-    fn execute_feature_stage(
-        &self,
-        request: &FpgaFeatureRequest,
-        output_dir: &Path,
-    ) -> Result<FpgaFeatureResponse>;
+    fn execute_stage(&self, request: &FpgaSimRequest, output_dir: &Path)
+    -> Result<FpgaSimResponse>;
 }

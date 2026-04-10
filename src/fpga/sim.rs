@@ -4,7 +4,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use crate::fpga::transport::{FpgaExecutor, FpgaFeatureRequest, FpgaFeatureResponse};
+use crate::fpga::transport::{FpgaExecutor, FpgaSimRequest, FpgaSimResponse};
 
 pub struct IverilogSimExecutor {
     pub runner: PathBuf,
@@ -32,14 +32,14 @@ impl FpgaExecutor for IverilogSimExecutor {
         "iverilog-sim"
     }
 
-    fn execute_feature_stage(
+    fn execute_stage(
         &self,
-        request: &FpgaFeatureRequest,
+        request: &FpgaSimRequest,
         output_dir: &Path,
-    ) -> Result<FpgaFeatureResponse> {
+    ) -> Result<FpgaSimResponse> {
         fs::create_dir_all(output_dir)?;
-        let request_path = output_dir.join("feature_request.json");
-        let response_path = output_dir.join("feature_response.json");
+        let request_path = output_dir.join("sim_request.json");
+        let response_path = output_dir.join("sim_response.json");
         fs::write(&request_path, serde_json::to_vec_pretty(request)?)?;
 
         let mut command = Command::new(&self.runner);

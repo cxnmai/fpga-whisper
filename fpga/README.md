@@ -30,4 +30,5 @@ Current simulator scaffold:
 - Rust backend: `fpga-sim`
 - transport contract: JSON request/response files in `fpga/tmp/`
 - bridge script: `fpga/scripts/run_fpga_sim.py`
-- first placeholder RTL: `fpga/rtl/feature_stage_stub.v`
+- first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
+- first real testbench: `fpga/tb/dot_product_i16x8_tb.v`
