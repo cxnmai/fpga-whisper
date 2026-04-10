@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
 from dataclasses import dataclass
 
 from ..config import MODEL_CT2_ALIAS, MODEL_HF_REPO, AppConfig
@@ -13,6 +11,7 @@ from ..types import (
     Transcript,
     TranscriptionRequest,
 )
+from ..worker import build_ct2_worker_command, build_worker_env
 
 
 @dataclass(slots=True)
@@ -25,20 +24,11 @@ class Ct2PythonBackend:
         return describe_backend(BackendKind.CT2_PYTHON)
 
     def build_worker_command(self, request: TranscriptionRequest) -> list[str]:
-        command = [
-            sys.executable,
-            str(self.config.worker_script_path),
-            "--audio",
-            str(request.audio_path),
-        ]
-        if request.initial_prompt:
-            command.extend(["--initial-prompt", request.initial_prompt])
-        return command
+        return build_ct2_worker_command(self.config, request)
 
     def transcribe(self, request: TranscriptionRequest) -> Transcript:
         command = self.build_worker_command(request)
-        env = os.environ.copy()
-        env.setdefault("UV_CACHE_DIR", str(self.config.uv_cache_dir))
+        env = build_worker_env(self.config)
 
         completed = subprocess.run(
             command,

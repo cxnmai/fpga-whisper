@@ -27,15 +27,15 @@ The **host runtime is now Python-first**. The FPGA assets remain the point of th
 
 ## Repo layout
 
-- `src/fpga_whisper/cli.py`: top-level Python command surface
-- `src/fpga_whisper/backends/`: host runtime backends
-- `src/fpga_whisper/fpga/`: simulator, transport, quantization, and kernel helpers
-- `src/fpga_whisper/fpga_cli.py`: FPGA validation and sweep commands
-- `src/fpga_whisper/model/ct2.py`: baked CTranslate2 `model.bin` reader
-- `src/fpga_whisper/model/reference.py`: reference activation export/load helpers
-- `src/fpga_whisper/profiling.py`: backend resource profiling helpers
-- `src/fpga_whisper/scripts/ct2_worker.py`: direct CTranslate2 worker with graceful dependency fallback
-- `src/fpga_whisper/scripts/export_reference_activation.py`: activation export helper for validation flows
+- `src/cli.py`: top-level Python command surface
+- `src/backends/`: host runtime backends
+- `src/fpga/`: simulator, transport, quantization, and kernel helpers
+- `src/fpga_cli.py`: FPGA validation and sweep commands
+- `src/model/ct2.py`: baked CTranslate2 `model.bin` reader
+- `src/model/reference.py`: reference activation export/load helpers
+- `src/profiling.py`: backend resource profiling helpers
+- `src/scripts/ct2_worker.py`: direct CTranslate2 worker with graceful dependency fallback
+- `src/scripts/export_reference_activation.py`: activation export helper for validation flows
 - `pyproject.toml`: `uv`-managed Python project definition
 - `uv.lock`: locked dependency graph for reproducible runs
 - `docs/architecture.md`: stage split and milestones
@@ -89,7 +89,7 @@ The default baseline backend is `ct2-python`.
 
 It invokes the packaged worker at:
 
-- `src/fpga_whisper/scripts/ct2_worker.py`
+- `src/scripts/ct2_worker.py`
 
 and expects JSON back.
 
@@ -133,8 +133,7 @@ This path keeps the FPGA workflow intact:
 
 - Python host orchestrates the pipeline
 - `fpga-sim` writes each request into its own scratch directory under `fpga/tmp/`
-- Python generates vectors, runs `iverilog`/`vvp`, and writes a response JSON back
-- Python parses the response and continues the flow
+- Python launches the direct `iverilog`/`vvp` simulator flow and reads the response JSON back
 
 This keeps the eventual real-FPGA interface aligned with the simulator interface.
 

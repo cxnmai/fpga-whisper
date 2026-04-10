@@ -13,8 +13,6 @@ MODEL_CT2_CACHE_REPO_DIR = "models--Systran--faster-distil-whisper-small.en"
 @dataclass(slots=True)
 class AppConfig:
     project_root: Path = field(default_factory=lambda: Path("."))
-    worker_launcher: str = "uv"
-    worker_launcher_args: list[str] = field(default_factory=lambda: ["run"])
     worker_module: str = "scripts.ct2_worker"
     reference_python: str = "python3"
     reference_exporter_module: str = "scripts.export_reference_activation"

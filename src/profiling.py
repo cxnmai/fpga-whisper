@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import threading
 import time
@@ -11,6 +10,7 @@ import psutil
 
 from .config import AppConfig
 from .types import BackendKind, Transcript, TranscriptionRequest
+from .worker import build_ct2_worker_command, build_worker_env
 
 
 @dataclass(slots=True)
@@ -68,9 +68,8 @@ def profile_ct2_request(
     request: TranscriptionRequest,
     sample_interval_seconds: float,
 ) -> ProfileReport:
-    command = build_worker_command(config, request)
-    env = os.environ.copy()
-    env.setdefault("UV_CACHE_DIR", str(config.uv_cache_dir))
+    command = build_ct2_worker_command(config, request)
+    env = build_worker_env(config)
 
     started = time.perf_counter()
     child = subprocess.Popen(
@@ -84,9 +83,10 @@ def profile_ct2_request(
 
     stop_event = threading.Event()
     samples: list[ResourceSample] = []
+    tracker = ProcessTreeTracker(child.pid)
     sampler = threading.Thread(
         target=_sampling_loop,
-        args=(child.pid, started, sample_interval_seconds, stop_event, samples),
+        args=(tracker, started, sample_interval_seconds, stop_event, samples),
         daemon=True,
     )
     sampler.start()
@@ -131,101 +131,90 @@ def profile_ct2_request(
     )
 
 
-def build_worker_command(
-    config: AppConfig,
-    request: TranscriptionRequest,
-) -> list[str]:
-    command = [
-        str(config.worker_launcher),
-        *config.worker_launcher_args,
-        str(config.worker_script_path),
-        "--audio",
-        str(request.audio_path),
-    ]
-    if request.initial_prompt:
-        command.extend(["--initial-prompt", request.initial_prompt])
-    return command
+@dataclass(slots=True)
+class ProcessTreeTracker:
+    root_pid: int
+    handles: dict[int, psutil.Process] | None = None
+
+    def __post_init__(self) -> None:
+        self.handles = {}
+
+    def sample(self, elapsed_seconds: float) -> ResourceSample | None:
+        processes = self._refresh_process_tree()
+        if not processes:
+            return None
+
+        total_cpu = 0.0
+        total_memory = 0
+        total_virtual_memory = 0
+        process_count = 0
+
+        for process in processes:
+            try:
+                total_cpu += float(process.cpu_percent(interval=None))
+                memory_info = process.memory_info()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+            total_memory += int(memory_info.rss)
+            total_virtual_memory += int(memory_info.vms)
+            process_count += 1
+
+        if process_count == 0:
+            return None
+
+        return ResourceSample(
+            elapsed_seconds=elapsed_seconds,
+            cpu_percent=total_cpu,
+            memory_mib=bytes_to_mib(total_memory),
+            virtual_memory_mib=bytes_to_mib(total_virtual_memory),
+            process_count=process_count,
+        )
+
+    def _refresh_process_tree(self) -> list[psutil.Process]:
+        try:
+            root_process = self.handles.get(self.root_pid) or psutil.Process(self.root_pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return []
+
+        try:
+            current_processes = [root_process]
+            current_processes.extend(root_process.children(recursive=True))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return []
+
+        refreshed: dict[int, psutil.Process] = {}
+        for process in current_processes:
+            pid = process.pid
+            handle = self.handles.get(pid, process)
+            if pid not in self.handles:
+                try:
+                    handle.cpu_percent(interval=None)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            refreshed[pid] = handle
+
+        self.handles = refreshed
+        return list(refreshed.values())
 
 
 def _sampling_loop(
-    root_pid: int,
+    tracker: ProcessTreeTracker,
     started: float,
     sample_interval_seconds: float,
     stop_event: threading.Event,
     samples: list[ResourceSample],
 ) -> None:
-    process: psutil.Process | None = None
-    while process is None:
-        try:
-            process = psutil.Process(root_pid)
-        except psutil.NoSuchProcess:
-            return
-
-    _prime_process_tree_cpu(process)
-
     interval = max(sample_interval_seconds, 0.05)
     while not stop_event.is_set():
         time.sleep(interval)
-        sample = collect_sample(process, time.perf_counter() - started)
+        sample = tracker.sample(time.perf_counter() - started)
         if sample is not None:
             samples.append(sample)
 
-    final_sample = collect_sample(process, time.perf_counter() - started)
+    final_sample = tracker.sample(time.perf_counter() - started)
     if final_sample is not None:
         samples.append(final_sample)
-
-
-def collect_sample(
-    root_process: psutil.Process,
-    elapsed_seconds: float,
-) -> ResourceSample | None:
-    processes = collect_process_tree(root_process)
-    if not processes:
-        return None
-
-    total_cpu = 0.0
-    total_memory = 0
-    total_virtual_memory = 0
-    process_count = 0
-
-    for process in processes:
-        try:
-            total_cpu += float(process.cpu_percent(interval=None))
-            memory_info = process.memory_info()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-
-        total_memory += int(memory_info.rss)
-        total_virtual_memory += int(memory_info.vms)
-        process_count += 1
-
-    if process_count == 0:
-        return None
-
-    return ResourceSample(
-        elapsed_seconds=elapsed_seconds,
-        cpu_percent=total_cpu,
-        memory_mib=bytes_to_mib(total_memory),
-        virtual_memory_mib=bytes_to_mib(total_virtual_memory),
-        process_count=process_count,
-    )
-
-
-def collect_process_tree(root_process: psutil.Process) -> list[psutil.Process]:
-    try:
-        processes = [root_process]
-        processes.extend(root_process.children(recursive=True))
-        return processes
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
-        return []
-
-
-def _prime_process_tree_cpu(root_process: psutil.Process) -> None:
-    for process in collect_process_tree(root_process):
-        try:
-            process.cpu_percent(interval=None)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
 
 
 def summarize_samples(samples: list[ResourceSample]) -> ResourceSummary:

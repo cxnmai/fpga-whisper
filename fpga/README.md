@@ -10,7 +10,7 @@ Suggested subdirectories:
 - `scripts/`: export, packing, and memory-image tooling
 - `tb/`: standalone test benches for `iverilog`/`vvp`
 - `vectors/`: request/response vectors for host-simulator exchange
-- `tmp/`: transient simulator I/O produced by the Python host runtime, one scratch directory per invocation
+- `tmp/`: transient simulator I/O produced by the host runtime, one scratch directory per invocation
 
 The target split for the FPGA is:
 
@@ -29,7 +29,7 @@ Current simulator scaffold:
 
 - Python backend: `fpga-sim`
 - transport contract: JSON request/response files in per-run scratch directories under `fpga/tmp/`
-- simulator invocation: direct Python host -> `iverilog` / `vvp`
+- simulator invocation: host runtime -> direct `iverilog` / `vvp`
 - first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
 - first real testbench: `fpga/tb/dot_product_i16x8_tb.v`
 - first reusable tile primitive: `fpga/rtl/gemm_tile_i16x8.v`
