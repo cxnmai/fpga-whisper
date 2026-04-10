@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
+
+import numpy as np
 
 from .config import AppConfig
 from .fpga.kernels.gelu import GeluComparison, simulate_gelu_block
@@ -9,8 +12,6 @@ from .fpga.kernels.gemm import (
     MatrixI16,
     MatrixI64,
     simulate_gemm_tile,
-    simulate_gemm_tile_with_accumulator,
-    software_gemm_with_accumulator,
 )
 from .fpga.kernels.linear import (
     LinearComparison,
@@ -618,10 +619,10 @@ def run_projection_case(
     executor: IverilogSimExecutor,
     config: AppConfig,
     model_bin_path: Path,
-    weight_values: list[float],
+    weight_values,
     input_dim: int,
-    bias_values: list[float],
-    activation: list[float],
+    bias_values,
+    activation,
     sequence_index: int,
     input_start: int,
     output_start: int,
@@ -636,29 +637,31 @@ def run_projection_case(
             f"{input_start + tile_inner}, got {len(activation)}"
         )
 
-    input_float = activation[input_start : input_start + tile_inner]
-    input_quantized = quant.quantize_slice(input_float)
+    activation_array = np.asarray(activation, dtype=np.float32)
+    weight_matrix = np.asarray(weight_values, dtype=np.float32).reshape(-1, input_dim)
+    bias_array = np.asarray(bias_values, dtype=np.float32)
 
-    weight_tile_float: list[float] = []
-    for input_offset in range(tile_inner):
-        for output_offset in range(tile_cols):
-            output_index = output_start + output_offset
-            input_index = input_start + input_offset
-            weight_tile_float.append(
-                weight_values[output_index * input_dim + input_index]
-            )
+    input_float = activation_array[input_start : input_start + tile_inner]
+    input_quantized = quant.quantize_array(input_float)
 
-    weight_tile_quantized = quant.quantize_slice(weight_tile_float)
-    bias_float = bias_values[output_start : output_start + tile_cols]
-    bias_quantized = quant.quantize_slice(bias_float)
+    weight_tile_float = (
+        weight_matrix[output_start : output_start + tile_cols, input_start : input_start + tile_inner]
+        .T
+        .reshape(-1)
+    )
+    weight_tile_quantized = quant.quantize_array(weight_tile_float)
+    bias_float = bias_array[output_start : output_start + tile_cols]
+    bias_quantized = quant.quantize_array(bias_float)
 
     layer = LinearLayerI16(
         input_dim=tile_inner,
         output_dim=tile_cols,
         weights=MatrixI16(
-            rows=tile_inner, cols=tile_cols, values=weight_tile_quantized
+            rows=tile_inner,
+            cols=tile_cols,
+            values=weight_tile_quantized.astype(np.int64, copy=False).tolist(),
         ),
-        bias=list(bias_quantized),
+        bias=bias_quantized.astype(np.int64, copy=False).tolist(),
         quant=quant,
     )
 
@@ -667,7 +670,7 @@ def run_projection_case(
         output_dir=config.resolved_fpga_sim_io_dir,
         audio_path=str(model_bin_path),
         layer=layer,
-        input_values=input_quantized,
+        input_values=input_quantized.astype(np.int64, copy=False).tolist(),
     )
 
     float_reference = compute_float_projection(
@@ -687,10 +690,10 @@ def run_projection_case(
         sequence_index=sequence_index,
         input_start=input_start,
         output_start=output_start,
-        input_float=list(input_float),
-        input_quantized=list(input_quantized),
-        bias_float=list(bias_float),
-        bias_quantized=list(bias_quantized),
+        input_float=input_float.tolist(),
+        input_quantized=input_quantized.astype(np.int64, copy=False).tolist(),
+        bias_float=bias_float.tolist(),
+        bias_quantized=bias_quantized.astype(np.int64, copy=False).tolist(),
         float_reference=float_reference,
         rtl_dequantized=rtl_dequantized,
         max_abs_error=max_abs_error,
@@ -704,10 +707,10 @@ def run_projection_full_case(
     executor: IverilogSimExecutor,
     config: AppConfig,
     model_bin_path: Path,
-    weight_values: list[float],
+    weight_values,
     input_dim: int,
-    bias_values: list[float],
-    activation: list[float],
+    bias_values,
+    activation,
     sequence_index: int,
     output_start: int,
     tile_inner: int,
@@ -725,12 +728,28 @@ def run_projection_full_case(
             f"{input_dim} to be divisible by tile width {tile_inner}"
         )
 
-    bias_float = bias_values[output_start : output_start + tile_cols]
-    bias_quantized = quant.quantize_slice(bias_float)
+    activation_array = np.asarray(activation, dtype=np.float32)
+    weight_matrix = np.asarray(weight_values, dtype=np.float32).reshape(-1, input_dim)
+    bias_array = np.asarray(bias_values, dtype=np.float32)
+
+    tile_count = input_dim // tile_inner
+    activation_tiles = activation_array.reshape(tile_count, tile_inner)
+    quantized_activation_tiles = quant.quantize_array(activation_tiles)
+    weight_window = weight_matrix[output_start : output_start + tile_cols, :]
+    weight_tiles = weight_window.reshape(tile_cols, tile_count, tile_inner).transpose(
+        1, 2, 0
+    )
+    quantized_weight_tiles = quant.quantize_array(weight_tiles)
+
+    bias_float = bias_array[output_start : output_start + tile_cols]
+    bias_quantized = quant.quantize_array(bias_float)
+    bias_accumulator_values = (
+        bias_quantized.astype(np.int64, copy=False) << quant.fractional_bits
+    )
     software_accumulator = MatrixI64(
         rows=1,
         cols=tile_cols,
-        values=[quant.bias_to_accumulator(value) for value in bias_quantized],
+        values=bias_accumulator_values.tolist(),
     )
     rtl_accumulator = MatrixI64(
         rows=software_accumulator.rows,
@@ -739,33 +758,28 @@ def run_projection_full_case(
     )
     batch_requests: list[GemmTileI16Request] = []
     max_tile_error = 0.0
+    software_accumulator_values = bias_accumulator_values.copy()
 
-    for input_start in range(0, input_dim, tile_inner):
-        input_float = activation[input_start : input_start + tile_inner]
-        input_quantized = quant.quantize_slice(input_float)
-
-        weight_tile_float: list[float] = []
-        for input_offset in range(tile_inner):
-            for output_offset in range(tile_cols):
-                output_index = output_start + output_offset
-                input_index = input_start + input_offset
-                weight_tile_float.append(
-                    weight_values[output_index * input_dim + input_index]
-                )
-        weight_tile_quantized = quant.quantize_slice(weight_tile_float)
-        lhs = MatrixI16(rows=1, cols=tile_inner, values=input_quantized)
-        rhs = MatrixI16(rows=tile_inner, cols=tile_cols, values=weight_tile_quantized)
-        software_accumulator = software_gemm_with_accumulator(
-            lhs,
-            rhs,
-            software_accumulator,
+    for tile_index in range(tile_count):
+        input_quantized = quantized_activation_tiles[tile_index]
+        weight_tile_quantized = quantized_weight_tiles[tile_index]
+        software_accumulator_values = software_accumulator_values + (
+            input_quantized.astype(np.int64, copy=False)
+            @ weight_tile_quantized.astype(np.int64, copy=False)
+        )
+        software_accumulator = MatrixI64(
+            rows=1,
+            cols=tile_cols,
+            values=software_accumulator_values.tolist(),
         )
         batch_requests.append(
             GemmTileI16Request(
                 audio_path=str(model_bin_path),
                 shape=GemmTileShape(rows=1, cols=tile_cols, inner=tile_inner),
-                lhs_tile=list(lhs.values),
-                rhs_tile=list(rhs.values),
+                lhs_tile=input_quantized.astype(np.int64, copy=False).tolist(),
+                rhs_tile=weight_tile_quantized.reshape(-1)
+                .astype(np.int64, copy=False)
+                .tolist(),
                 accumulator_input=list(rtl_accumulator.values),
                 expected_output=list(software_accumulator.values),
             )
@@ -816,8 +830,8 @@ def run_projection_full_case(
         tile_inner=tile_inner,
         tile_cols=tile_cols,
         tile_count=len(batch_requests),
-        bias_float=list(bias_float),
-        bias_quantized=list(bias_quantized),
+        bias_float=bias_float.tolist(),
+        bias_quantized=bias_quantized.astype(np.int64, copy=False).tolist(),
         software_output=list(software_accumulator.values),
         rtl_output=list(rtl_accumulator.values),
         float_reference=float_reference,
@@ -834,41 +848,41 @@ def print_matrix_i64(matrix: MatrixI64) -> None:
         print(f"[{', '.join(values)}]")
 
 
-def format_vector_f32(values: list[float]) -> str:
+def format_vector_f32(values: Sequence[float] | np.ndarray) -> str:
     return "[" + ", ".join(f"{value:.6f}" for value in values) + "]"
 
 
-def format_vector_i16(values: list[int]) -> str:
+def format_vector_i16(values: Sequence[int] | np.ndarray) -> str:
     return "[" + ", ".join(str(value) for value in values) + "]"
 
 
-def dequantize_outputs(quant: FixedPointConfig, values: list[int]) -> list[float]:
-    return [quant.dequantize_accumulator(value) for value in values]
+def dequantize_outputs(
+    quant: FixedPointConfig, values: Sequence[int] | np.ndarray
+) -> list[float]:
+    return quant.dequantize_accumulator_array(values).tolist()
 
 
 def compute_float_projection(
     *,
-    input_values: list[float],
-    weight_values: list[float],
+    input_values,
+    weight_values,
     input_dim: int,
-    bias_values: list[float],
+    bias_values,
     input_start: int,
     output_start: int,
     tile_inner: int,
     tile_cols: int,
 ) -> list[float]:
-    outputs: list[float] = []
-    for output_offset in range(tile_cols):
-        output_index = output_start + output_offset
-        dot = 0.0
-        for input_offset in range(tile_inner):
-            input_index = input_start + input_offset
-            dot += (
-                input_values[input_offset]
-                * weight_values[output_index * input_dim + input_index]
-            )
-        outputs.append(dot + bias_values[output_index])
-    return outputs
+    input_array = np.asarray(input_values, dtype=np.float32)
+    weight_matrix = np.asarray(weight_values, dtype=np.float32).reshape(-1, input_dim)
+    bias_array = np.asarray(bias_values, dtype=np.float32)
+    weight_window = weight_matrix[
+        output_start : output_start + tile_cols,
+        input_start : input_start + tile_inner,
+    ]
+    outputs = weight_window @ input_array[:tile_inner]
+    outputs = outputs + bias_array[output_start : output_start + tile_cols]
+    return outputs.tolist()
 
 
 def build_output_starts(output_dim: int, tile_cols: int) -> list[int]:
@@ -997,8 +1011,18 @@ def print_model_info(model_bin_path: Path, model: Ct2ModelBin) -> None:
     )
 
 
-def max_abs_diff(lhs: list[float], rhs: list[float]) -> float:
-    return max((abs(a - b) for a, b in zip(lhs, rhs, strict=False)), default=0.0)
+def max_abs_diff(
+    lhs: Sequence[float] | np.ndarray, rhs: Sequence[float] | np.ndarray
+) -> float:
+    lhs_array = np.asarray(lhs, dtype=np.float32)
+    rhs_array = np.asarray(rhs, dtype=np.float32)
+    if lhs_array.shape != rhs_array.shape:
+        raise ValueError(
+            f"shape mismatch while computing abs diff: {lhs_array.shape} vs {rhs_array.shape}"
+        )
+    if lhs_array.size == 0:
+        return 0.0
+    return float(np.max(np.abs(lhs_array - rhs_array)))
 
 
 def dedupe_notes(notes: list[str]) -> list[str]:

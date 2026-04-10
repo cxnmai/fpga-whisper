@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from numpy.typing import NDArray
+
 
 @dataclass(slots=True)
 class ReferenceActivationExport:
@@ -16,7 +19,7 @@ class ReferenceActivationExport:
     sequence_length: int
     exported_positions: int
     hidden_size: int
-    activations: list[list[float]]
+    activations: list[NDArray[np.float32]]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ReferenceActivationExport":
@@ -28,7 +31,8 @@ class ReferenceActivationExport:
             exported_positions=int(data["exported_positions"]),
             hidden_size=int(data["hidden_size"]),
             activations=[
-                [float(value) for value in row] for row in data.get("activations", [])
+                np.asarray(row, dtype=np.float32)
+                for row in data.get("activations", [])
             ],
         )
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import BinaryIO, Iterator
 
 import numpy as np
+from numpy.typing import NDArray
 
 
 class Ct2DataType(Enum):
@@ -56,7 +57,7 @@ class TensorInfo:
 @dataclass(slots=True, frozen=True)
 class TensorDataF32:
     info: TensorInfo
-    values: list[float]
+    values: NDArray[np.float32]
 
 
 class Ct2ModelBin:
@@ -133,20 +134,18 @@ class Ct2ModelBin:
             )
 
         if info.dtype is Ct2DataType.FLOAT32:
-            values = np.frombuffer(raw, dtype="<f4").astype(np.float32, copy=False)
-            result = values.tolist()
+            result = np.frombuffer(raw, dtype="<f4").astype(np.float32, copy=False)
         elif info.dtype is Ct2DataType.FLOAT16:
-            values = np.frombuffer(raw, dtype="<f2").astype(np.float32)
-            result = values.tolist()
+            result = np.frombuffer(raw, dtype="<f2").astype(np.float32)
         else:
             raise ValueError(
                 f"tensor {name} has dtype {info.dtype.label}, not a float tensor"
             )
 
-        if len(result) != info.element_count:
+        if result.size != info.element_count:
             raise ValueError(
                 f"tensor {info.name} element count mismatch: "
-                f"expected {info.element_count}, got {len(result)}"
+                f"expected {info.element_count}, got {result.size}"
             )
 
         return TensorDataF32(info=info, values=result)
