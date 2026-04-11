@@ -1,5 +1,7 @@
 # fpga-whisper
 
+The FPGA currently handles the hardware UART path and the Whisper frontend: mel coefficient storage/loading plus mel/log-mel feature generation. Encoder and decoder inference still run on the host, while smaller FPGA math kernels like dot product and GELU are validated separately.
+
 Two pathways:
 
 - `ct2-python`: CPU baseline using the baked `distil-whisper/distil-small.en` model
