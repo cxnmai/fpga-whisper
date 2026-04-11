@@ -7,6 +7,13 @@
 #
 # Outputs land in fpga/output/.
 
+if {[llength $argv] >= 1} {
+    set part [lindex $argv 0]
+}
+if {[llength $argv] >= 2} {
+    set output_dir [lindex $argv 1]
+}
+
 if {![info exists part]} {
     set part xc7s50csga324-1
 }
