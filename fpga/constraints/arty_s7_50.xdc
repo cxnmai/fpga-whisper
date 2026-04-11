@@ -54,8 +54,8 @@ set_property -dict { PACKAGE_PIN E14  IOSTANDARD LVCMOS33 } [get_ports { led1_b 
 ##   uart_rxd = host-to-FPGA  (FPGA receives)
 ##   uart_txd = FPGA-to-host  (FPGA transmits)
 ## ----------------------------------------------------------------------------
-set_property -dict { PACKAGE_PIN R12  IOSTANDARD LVCMOS33 } [get_ports { uart_rxd }]
-set_property -dict { PACKAGE_PIN V12  IOSTANDARD LVCMOS33 } [get_ports { uart_txd }]
+set_property -dict { PACKAGE_PIN V12  IOSTANDARD LVCMOS33 } [get_ports { uart_rxd }]
+set_property -dict { PACKAGE_PIN R12  IOSTANDARD LVCMOS33 } [get_ports { uart_txd }]
 
 ## UART RX is asynchronous -- mark false path to avoid spurious timing failures.
 set_false_path -from [get_ports { uart_rxd }]

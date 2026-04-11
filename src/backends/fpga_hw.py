@@ -10,6 +10,7 @@ import numpy as np
 from ..config import AppConfig
 from ..fpga.kernels.logmel import (
     MEL_BINS,
+    MEL_COEFF_FRAC_BITS,
     quantize_mel_filterbank,
     software_logmel_frame,
 )
@@ -211,7 +212,10 @@ class FpgaHardwareBackend:
             mel_log_q8_8 = np.asarray(response.rtl_output, dtype=np.float64).reshape(
                 frames, MEL_BINS
             )
-            log_spec = (mel_log_q8_8 / 256.0) * np.log10(2.0)
+            frame_log_scale = (
+                np.log10(power_scale) - (MEL_COEFF_FRAC_BITS * np.log10(2.0))
+            )[:, np.newaxis]
+            log_spec = ((mel_log_q8_8 / 256.0) * np.log10(2.0)) + frame_log_scale
             log_spec = np.maximum(log_spec, log_spec.max() - 8.0)
             features = ((log_spec + 4.0) / 4.0).T.astype(np.float32, copy=False)
             features_path = self._chunk_features_path(chunk_index)

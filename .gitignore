@@ -9,6 +9,7 @@ __pycache__/
 fpga/tmp/*
 !fpga/tmp/.gitkeep
 fpga/hwtmp/*
+!fpga/hwtmp/.gitkeep
 .Xil/
 fpga/output/
 *.jou

@@ -7,9 +7,15 @@
 #
 # Outputs land in fpga/output/.
 
-set part       xc7s50csga324-1
-set top        whisper_top
-set output_dir fpga/output
+if {![info exists part]} {
+    set part xc7s50csga324-1
+}
+if {![info exists top]} {
+    set top whisper_top
+}
+if {![info exists output_dir]} {
+    set output_dir fpga/output
+}
 
 file mkdir $output_dir
 

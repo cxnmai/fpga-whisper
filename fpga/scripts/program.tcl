@@ -11,6 +11,14 @@ set bit_file  fpga/output/whisper_top.bit
 set mcs_file  fpga/output/whisper_top.mcs
 set flash_part s25fl128sxxxxxx0-spi-x1_x2_x4
 
+proc set_cfgmem_property_if_supported {cfgmem prop value} {
+    if {[lsearch -exact [list_property $cfgmem] $prop] >= 0} {
+        set_property $prop $value $cfgmem
+    } else {
+        puts "Skipping unsupported cfgmem property $prop"
+    }
+}
+
 # ── parse args ────────────────────────────────────────────────────
 set do_flash 0
 foreach arg $argv {
@@ -31,16 +39,20 @@ if {$do_flash} {
 
     create_hw_cfgmem -hw_device $device -mem_dev [lindex [get_cfgmem_parts $flash_part] 0]
     set cfgmem [get_property PROGRAM.HW_CFGMEM $device]
+    set cfgmem_bitfile [get_property PROGRAM.HW_CFGMEM_BITFILE $device]
 
-    set_property PROGRAM.ADDRESS_RANGE  {use_file}         $cfgmem
-    set_property PROGRAM.FILES          [list $mcs_file]   $cfgmem
-    set_property PROGRAM.PRM_FILE       {}                 $cfgmem
-    set_property PROGRAM.UNUSED_PIN_PULLNONE {1}           $cfgmem
-    set_property PROGRAM.BLANK_CHECK    {0}                $cfgmem
-    set_property PROGRAM.ERASE          {1}                $cfgmem
-    set_property PROGRAM.CFG_PROGRAM    {1}                $cfgmem
-    set_property PROGRAM.VERIFY         {1}                $cfgmem
-    set_property PROGRAM.CHECKSUM       {0}                $cfgmem
+    set_cfgmem_property_if_supported $cfgmem PROGRAM.FILES [list $mcs_file]
+    set_cfgmem_property_if_supported $cfgmem PROGRAM.UNUSED_PIN_TERMINATION {pull-none}
+    set_cfgmem_property_if_supported $cfgmem PROGRAM.BLANK_CHECK {0}
+    set_cfgmem_property_if_supported $cfgmem PROGRAM.ERASE {1}
+    set_cfgmem_property_if_supported $cfgmem PROGRAM.CFG_PROGRAM {1}
+    set_cfgmem_property_if_supported $cfgmem PROGRAM.VERIFY {1}
+
+    # Indirect flash programming first loads a small helper image that
+    # bridges the FPGA fabric to the attached SPI flash device.
+    create_hw_bitstream -hw_device $device $cfgmem_bitfile
+    program_hw_devices $device
+    refresh_hw_device $device
 
     program_hw_cfgmem -hw_cfgmem $cfgmem
 

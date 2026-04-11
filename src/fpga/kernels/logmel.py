@@ -82,7 +82,17 @@ def software_logmel_frame(
     power_spectrum: np.ndarray,
     mel_coefficients: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    accumulators = power_spectrum.astype(np.uint64) @ mel_coefficients.T.astype(np.uint64)
+    if mel_coefficients.shape == (FFT_BINS, MEL_BINS):
+        coeff_matrix = mel_coefficients
+    elif mel_coefficients.shape == (MEL_BINS, FFT_BINS):
+        coeff_matrix = mel_coefficients.T
+    else:
+        raise ValueError(
+            "mel coefficient matrix must have shape "
+            f"({FFT_BINS}, {MEL_BINS}) or ({MEL_BINS}, {FFT_BINS}), got {mel_coefficients.shape!r}"
+        )
+
+    accumulators = power_spectrum.astype(np.uint64) @ coeff_matrix.astype(np.uint64)
     log_output = np.fromiter(
         (log2_linear_q8_8(int(value)) for value in accumulators),
         dtype=np.uint16,
@@ -103,10 +113,10 @@ def simulate_logmel_frame(
         raise ValueError(
             f"power spectrum must have shape ({FFT_BINS},), got {power_spectrum.shape!r}"
         )
-    if mel_coefficients.shape != (MEL_BINS, FFT_BINS):
+    if mel_coefficients.shape not in ((FFT_BINS, MEL_BINS), (MEL_BINS, FFT_BINS)):
         raise ValueError(
             "mel coefficient matrix must have shape "
-            f"({MEL_BINS}, {FFT_BINS}), got {mel_coefficients.shape!r}"
+            f"({FFT_BINS}, {MEL_BINS}) or ({MEL_BINS}, {FFT_BINS}), got {mel_coefficients.shape!r}"
         )
 
     _, expected_output = software_logmel_frame(power_spectrum, mel_coefficients)
