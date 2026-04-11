@@ -4,6 +4,7 @@ from ..config import AppConfig
 from ..types import BackendDescriptor, BackendKind, PartitionPreset, PipelineStage
 from .base import TranscriptionBackend
 from .ct2_python import Ct2PythonBackend
+from .fpga_hw import FpgaHardwareBackend
 from .fpga_hybrid import FpgaHybridBackend
 from .fpga_sim import FpgaSimBackend
 
@@ -13,6 +14,8 @@ def build_backend(kind: BackendKind, config: AppConfig) -> TranscriptionBackend:
         return Ct2PythonBackend(config)
     if kind is BackendKind.FPGA_SIM:
         return FpgaSimBackend.from_config(config)
+    if kind is BackendKind.FPGA_HW:
+        return FpgaHardwareBackend.from_config(config)
     if kind is BackendKind.FPGA_HYBRID:
         return FpgaHybridBackend()
     raise ValueError(f"unsupported backend kind: {kind}")
@@ -50,6 +53,21 @@ def describe_backend(kind: BackendKind) -> BackendDescriptor:
             fpga_stages=[PipelineStage.FEATURE_EXTRACTION],
         )
 
+    if kind is BackendKind.FPGA_HW:
+        return BackendDescriptor(
+            id=BackendKind.FPGA_HW,
+            summary="Real Arty S7 frontend backend over UART. Uses board-side log-mel and host CT2.",
+            partition=PartitionPreset.FRONTEND,
+            host_stages=[
+                PipelineStage.AUDIO_DECODE,
+                PipelineStage.ENCODER,
+                PipelineStage.DECODER_MATH,
+                PipelineStage.DECODE_POLICY,
+                PipelineStage.POST_PROCESS,
+            ],
+            fpga_stages=[PipelineStage.FEATURE_EXTRACTION],
+        )
+
     if kind is BackendKind.FPGA_HYBRID:
         return BackendDescriptor(
             id=BackendKind.FPGA_HYBRID,
@@ -73,6 +91,7 @@ def describe_backend(kind: BackendKind) -> BackendDescriptor:
 __all__ = [
     "TranscriptionBackend",
     "Ct2PythonBackend",
+    "FpgaHardwareBackend",
     "FpgaSimBackend",
     "FpgaHybridBackend",
     "build_backend",

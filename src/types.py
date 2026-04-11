@@ -13,6 +13,7 @@ MODEL_CT2_CACHE_REPO_DIR = "models--Systran--faster-distil-whisper-small.en"
 class BackendKind(str, Enum):
     CT2_PYTHON = "ct2-python"
     FPGA_SIM = "fpga-sim"
+    FPGA_HW = "fpga-hw"
     FPGA_HYBRID = "fpga-hybrid"
 
     @property

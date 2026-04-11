@@ -27,6 +27,14 @@ Use this mode for incremental handoff:
 - `encoder`: front-end plus encoder
 - `hybrid`: front-end, encoder, and decoder math
 
+### `fpga-hw`
+
+Use this mode for the real Arty S7 backend. The first revision is frontend-only:
+
+- host computes audio decode and power spectra
+- FPGA computes mel accumulation and returns board log-mel output
+- host converts the board output into Whisper features and hands them to CT2
+
 ## Hardware guidance
 
 The Arty S7 is not large enough to treat each layer as a host-driven RPC. The practical boundary is coarse-grained execution with resident weights and cache state per chunk.
@@ -41,5 +49,6 @@ That implies:
 
 1. Wire the CTranslate2 worker and validate transcripts against `faster-whisper`.
 2. Add feature extraction offload and verify mel parity.
-3. Offload encoder blocks with chunk-level transfers.
-4. Replace host decoder math with an FPGA matrix engine while keeping beam search on the host.
+3. Bring up the real board backend over UART using the same frontend contract as `fpga-sim`.
+4. Offload encoder blocks with chunk-level transfers.
+5. Replace host decoder math with an FPGA matrix engine while keeping beam search on the host.

@@ -28,8 +28,10 @@ The host should continue to own:
 Current simulator scaffold:
 
 - Python backend: `fpga-sim`
+- Real board backend: `fpga-hw`
 - transport contract: per-run scratch directories under `fpga/tmp/` with host-generated memfiles, simulator outputs, and optional debug artifacts
 - simulator invocation: host runtime -> direct `iverilog` / `vvp`
+- board invocation: host runtime -> UART transport -> Arty S7 firmware
 - first real RTL primitive: `fpga/rtl/dot_product_i16x8.v`
 - first real testbench: `fpga/tb/dot_product_i16x8_tb.v`
 - first reusable tile primitive: `fpga/rtl/gemm_tile_i16x8.v`
@@ -50,5 +52,7 @@ The current frontend simulation path is already able to drive a real transcripti
 - RTL computes batched mel accumulation
 - host applies Whisper log/clamp normalization
 - host passes the resulting feature tensor into the shared CTranslate2 worker path
+
+The real-board path uses the same frontend shape, but over UART instead of file exchange.
 
 The goal of this workspace is unchanged: keep the hardware boundary stable while progressively moving meaningful parts of Whisper onto the FPGA.

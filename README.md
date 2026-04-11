@@ -64,6 +64,7 @@ The Python host runtime is exposed as a console script:
 uv run fpga-whisper plan
 uv run fpga-whisper transcribe samples/silence.wav --backend ct2-python
 uv run fpga-whisper transcribe samples/jfk.flac --backend fpga-sim --partition frontend
+uv run fpga-whisper transcribe samples/jfk.flac --backend fpga-hw --partition frontend
 uv run fpga-whisper gemm-check
 uv run fpga-whisper logmel-frame-check
 uv run fpga-whisper linear-check
@@ -156,6 +157,18 @@ This path keeps the FPGA workflow intact:
 - Python launches the direct `iverilog`/`vvp` simulator flow and reads simulator outputs back into the host runtime
 
 This keeps the eventual real-FPGA interface aligned with the simulator interface.
+
+### `fpga-hw`
+
+Real Arty S7 backend over UART.
+
+Current scope:
+
+- host decodes audio and computes the power spectrogram
+- FPGA performs frontend mel accumulation and log-mel output over UART
+- host converts the board output into Whisper features and calls CT2
+
+This is the first board-backed transcription path. It is frontend-only for now.
 
 ### `fpga-hybrid`
 

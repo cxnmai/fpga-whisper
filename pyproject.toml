@@ -9,6 +9,7 @@ dependencies = [
     "faster-whisper",
     "numpy",
     "psutil",
+    "pyserial>=3.5",
     "transformers",
 ]
 

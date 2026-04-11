@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import threading
 import time
@@ -10,6 +11,7 @@ import psutil
 
 from .config import AppConfig
 from .types import BackendKind, Transcript, TranscriptionRequest
+from .backends import build_backend
 from .worker import build_ct2_worker_command, build_worker_env
 
 
@@ -52,15 +54,71 @@ def profile_request(
 ) -> ProfileReport:
     if request.backend is BackendKind.CT2_PYTHON:
         return profile_ct2_request(config, request, sample_interval_seconds)
-    if request.backend is BackendKind.FPGA_SIM:
-        raise RuntimeError(
-            "system profiling is not implemented for the fpga-sim backend yet"
-        )
-    if request.backend is BackendKind.FPGA_HYBRID:
-        raise RuntimeError(
-            "system profiling is not implemented for the fpga-hybrid backend yet"
-        )
+    if request.backend in {
+        BackendKind.FPGA_SIM,
+        BackendKind.FPGA_HW,
+        BackendKind.FPGA_HYBRID,
+    }:
+        return profile_backend_request(config, request, sample_interval_seconds)
     raise RuntimeError(f"unsupported backend for profiling: {request.backend}")
+
+
+def profile_backend_request(
+    config: AppConfig,
+    request: TranscriptionRequest,
+    sample_interval_seconds: float,
+) -> ProfileReport:
+    backend = build_backend(request.backend, config)
+
+    started = time.perf_counter()
+    result: dict[str, Transcript] = {}
+    failure: dict[str, BaseException] = {}
+
+    def _run() -> None:
+        try:
+            result["transcript"] = backend.transcribe(request)
+        except BaseException as exc:  # pragma: no cover - surfaced in main thread
+            failure["exc"] = exc
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+
+    stop_event = threading.Event()
+    samples: list[ResourceSample] = []
+    tracker = ProcessTreeTracker(os.getpid())
+    sampler = threading.Thread(
+        target=_sampling_loop,
+        args=(tracker, started, sample_interval_seconds, stop_event, samples),
+        daemon=True,
+    )
+    sampler.start()
+
+    worker.join()
+    stop_event.set()
+    sampler.join(timeout=max(sample_interval_seconds * 2.0, 0.1))
+
+    elapsed_seconds = time.perf_counter() - started
+    if failure:
+        raise failure["exc"]
+
+    transcript = result["transcript"]
+    realtime_factor = (
+        elapsed_seconds / transcript.audio_duration_seconds
+        if transcript.audio_duration_seconds > 0.0
+        else None
+    )
+    summary = summarize_samples(samples)
+
+    return ProfileReport(
+        backend=transcript.backend,
+        model=transcript.model,
+        elapsed_seconds=elapsed_seconds,
+        audio_duration_seconds=transcript.audio_duration_seconds,
+        realtime_factor=realtime_factor,
+        transcript=transcript,
+        samples=samples,
+        summary=summary,
+    )
 
 
 def profile_ct2_request(

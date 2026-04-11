@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -21,6 +22,16 @@ class AppConfig:
     )
     reference_export_positions: int = 4
     fpga_sim_io_dir: Path = field(default_factory=lambda: Path("fpga/tmp"))
+    fpga_hw_io_dir: Path = field(default_factory=lambda: Path("fpga/hwtmp"))
+    fpga_uart_port: str = field(
+        default_factory=lambda: os.environ.get("FPGA_WHISPER_UART_PORT", "/dev/ttyUSB1")
+    )
+    fpga_uart_baud: int = field(
+        default_factory=lambda: int(os.environ.get("FPGA_WHISPER_UART_BAUD", "115200"))
+    )
+    fpga_uart_timeout_seconds: float = field(
+        default_factory=lambda: float(os.environ.get("FPGA_WHISPER_UART_TIMEOUT", "5.0"))
+    )
     default_backend: BackendKind = BackendKind.CT2_PYTHON
     default_partition: PartitionPreset = PartitionPreset.HYBRID
 
@@ -52,6 +63,10 @@ class AppConfig:
     @property
     def resolved_fpga_sim_io_dir(self) -> Path:
         return self.resolve_project_path(self.fpga_sim_io_dir)
+
+    @property
+    def resolved_fpga_hw_io_dir(self) -> Path:
+        return self.resolve_project_path(self.fpga_hw_io_dir)
 
     def sample_request(self) -> dict[str, object]:
         return {
